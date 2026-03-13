@@ -6,6 +6,10 @@ const nextConfig = {
         protocol: 'https',
         hostname: 'api.ownerrez.com',
       },
+      {
+        protocol: 'https',
+        hostname: 'uc.orez.io',
+      },
     ],
   },
 }

@@ -29,6 +29,7 @@ html {
 }
 
 .rdp-day_disabled {
-  opacity: 0.3;
-  text-decoration: line-through;
+  opacity: 1;
+  color: #c4b8b0 !important;
+  cursor: not-allowed;
 }
