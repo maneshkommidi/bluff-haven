@@ -1,0 +1,34 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --green-primary: #2d5016;
+  --green-light: #f7f9f4;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+/* React Day Picker overrides for availability calendar */
+.rdp {
+  --rdp-cell-size: 44px;
+  --rdp-accent-color: #2d5016;
+  --rdp-background-color: #f0f5ea;
+  margin: 0;
+}
+
+.rdp-day_selected:not(.rdp-day_disabled) {
+  background-color: #2d5016;
+}
+
+.rdp-day_range_middle {
+  background-color: #f0f5ea;
+  color: #2d5016;
+}
+
+.rdp-day_disabled {
+  opacity: 0.3;
+  text-decoration: line-through;
+}
