@@ -12,7 +12,6 @@ export async function POST(request: Request) {
   const signature = request.headers.get('stripe-signature')!
 
   let event: Stripe.Event
-
   try {
     event = stripe.webhooks.constructEvent(
       body,
@@ -29,41 +28,40 @@ export async function POST(request: Request) {
     const meta = intent.metadata
 
     try {
-      // Create the booking in OwnerRez now that payment is confirmed
       const booking = await createBooking({
-        property_id: parseInt(meta.property_id),
-        first_name: meta.guest_first,
-        last_name: meta.guest_last,
-        email: meta.guest_email,
-        phone: meta.guest_phone,
-        arrival: meta.arrival,
-        departure: meta.departure,
-        adults: parseInt(meta.adults),
-        children: parseInt(meta.children),
-        notes: meta.notes,
+        property_id:               parseInt(meta.property_id),
+        first_name:                meta.guest_first,
+        last_name:                 meta.guest_last,
+        email:                     meta.guest_email,
+        phone:                     meta.guest_phone,
+        arrival:                   meta.arrival,
+        departure:                 meta.departure,
+        adults:                    parseInt(meta.adults),
+        children:                  parseInt(meta.children),
+        notes:                     meta.notes,
+        stripe_payment_intent_id:  intent.id,
+        total_paid:                intent.amount / 100,
       })
 
-      // Send confirmation email to guest
       await sendBookingConfirmation({
-        guestEmail: meta.guest_email,
-        guestName: `${meta.guest_first} ${meta.guest_last}`,
-        confirmationCode: booking.confirmation_code,
-        arrival: meta.arrival,
-        departure: meta.departure,
-        total: intent.amount / 100,
+        guestEmail:       meta.guest_email,
+        guestName:        `${meta.guest_first} ${meta.guest_last}`,
+        confirmationCode: booking.id.toString(),
+        arrival:          meta.arrival,
+        departure:        meta.departure,
+        total:            intent.amount / 100,
       })
 
-      console.log(`Booking created: ${booking.confirmation_code}`)
-    } catch (error) {
-      console.error('Failed to create booking after payment:', error)
-      // Don't return 500 — Stripe will retry. Log and alert instead.
+      console.log(`Booking created in OwnerRez: ${booking.id}`)
+    } catch (error: any) {
+      console.error('Failed to create booking after payment:', {
+        message: error?.message,
+        meta,
+      })
     }
   }
 
   return NextResponse.json({ received: true })
 }
 
-// Required: disable body parsing so we can verify the raw Stripe signature
-export const config = {
-  api: { bodyParser: false },
-}
+export const runtime = 'nodejs'

@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { DayPicker, DateRange } from 'react-day-picker'
 import 'react-day-picker/dist/style.css'
-import { format, differenceInCalendarDays, isBefore, startOfDay } from 'date-fns'
+import { format, differenceInCalendarDays, startOfDay } from 'date-fns'
 import dynamic from 'next/dynamic'
 
 const StripePaymentForm = dynamic(() => import('@/components/StripePaymentForm'), {
@@ -39,6 +39,13 @@ interface GuestForm {
 interface AvailabilityData {
   blockedDates: Set<string>
   checkoutOnlyDates: Set<string>
+  minNightsMap: Map<string, number>  // minNights per arrival date
+}
+
+function toDateStr(date: Date): string {
+  return date.getFullYear() + '-' +
+    String(date.getMonth() + 1).padStart(2, '0') + '-' +
+    String(date.getDate()).padStart(2, '0')
 }
 
 export default function BookPage() {
@@ -46,6 +53,7 @@ export default function BookPage() {
   const [availability, setAvailability] = useState<AvailabilityData>({
     blockedDates: new Set(),
     checkoutOnlyDates: new Set(),
+    minNightsMap: new Map(),
   })
   const [availabilityLoaded, setAvailabilityLoaded] = useState(false)
   const [availabilityError, setAvailabilityError] = useState<string | null>(null)
@@ -71,21 +79,21 @@ export default function BookPage() {
   useEffect(() => {
     fetch('/api/availability')
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
-      .then((days: { date: string; available: boolean }[]) => {
+      .then((days: { date: string; available: boolean; minNights?: number }[]) => {
         const blockedSet = new Set(days.filter(d => !d.available).map(d => d.date))
         const checkoutOnly = new Set<string>()
+        const minNightsMap = new Map<string, number>()
         for (const d of days) {
+          if (d.minNights && d.minNights > 1) minNightsMap.set(d.date, d.minNights)
           if (!d.available) {
             const [y, m, day] = d.date.split('-').map(Number)
             const prev = new Date(y, m - 1, day - 1)
-            const prevStr = prev.getFullYear() + '-' +
-              String(prev.getMonth() + 1).padStart(2, '0') + '-' +
-              String(prev.getDate()).padStart(2, '0')
+            const prevStr = toDateStr(prev)
             if (!blockedSet.has(prevStr)) checkoutOnly.add(d.date)
           }
         }
         for (const d of checkoutOnly) blockedSet.delete(d)
-        setAvailability({ blockedDates: blockedSet, checkoutOnlyDates: checkoutOnly })
+        setAvailability({ blockedDates: blockedSet, checkoutOnlyDates: checkoutOnly, minNightsMap })
         setAvailabilityLoaded(true)
       })
       .catch(err => {
@@ -96,35 +104,59 @@ export default function BookPage() {
   }, [])
 
   const isDateDisabled = useCallback((date: Date): boolean => {
-    if (isBefore(date, startOfDay(new Date()))) return true
-    const dateStr = date.getFullYear() + '-' +
-      String(date.getMonth() + 1).padStart(2, '0') + '-' +
-      String(date.getDate()).padStart(2, '0')
+    const today = startOfDay(new Date())
+    // Disable today and all past dates
+    if (date <= today) return true
+
+    const dateStr = toDateStr(date)
+
+    // Picking check-in: disable all blocked + checkout-only days
     if (!range?.from || range.to) {
       return availability.blockedDates.has(dateStr) || availability.checkoutOnlyDates.has(dateStr)
     }
+
+    // Picking check-out: must be after from
     if (date <= range.from) return true
+
+    // Disable dates that don't meet minimum night requirement
+    const nightsFromFrom = Math.round((date.getTime() - range.from.getTime()) / (1000 * 60 * 60 * 24))
+    const minN = availability.minNightsMap.get(toDateStr(range.from)) ?? 1
+    if (nightsFromFrom < minN) return true
+
+    // Walk from range.from+1 up to and including date.
+    // The first blocked or checkout-only day we hit defines the hard stop.
     const cursor = new Date(range.from)
     cursor.setDate(cursor.getDate() + 1)
-    while (cursor < date) {
-      const curStr = cursor.getFullYear() + '-' +
-        String(cursor.getMonth() + 1).padStart(2, '0') + '-' +
-        String(cursor.getDate()).padStart(2, '0')
-      if (availability.checkoutOnlyDates.has(curStr)) return true
+    while (cursor <= date) {
+      const curStr = toDateStr(cursor)
+      if (availability.checkoutOnlyDates.has(curStr)) {
+        // This day is valid as checkout but nothing beyond it
+        if (cursor.getTime() === date.getTime()) return false
+        return true
+      }
       if (availability.blockedDates.has(curStr)) return true
       cursor.setDate(cursor.getDate() + 1)
     }
-    if (availability.blockedDates.has(dateStr)) return true
+
     return false
   }, [range, availability])
 
   const isCheckoutOnly = useCallback((date: Date): boolean => {
     if (range?.from && !range.to) return false
-    const dateStr = date.getFullYear() + '-' +
-      String(date.getMonth() + 1).padStart(2, '0') + '-' +
-      String(date.getDate()).padStart(2, '0')
-    return availability.checkoutOnlyDates.has(dateStr)
+    return availability.checkoutOnlyDates.has(toDateStr(date))
   }, [range, availability])
+
+  // Returns the minNights for the current from date (or 1 if none)
+  const fromMinNights = range?.from
+    ? (availability.minNightsMap.get(toDateStr(range.from)) ?? 1)
+    : 1
+
+  // True when picking departure and this date is too close to from
+  const isTooFewNights = useCallback((date: Date): boolean => {
+    if (!range?.from || range.to) return false
+    const nights = Math.round((date.getTime() - range.from.getTime()) / (1000 * 60 * 60 * 24))
+    return nights > 0 && nights < fromMinNights
+  }, [range, fromMinNights])
 
   useEffect(() => {
     if (!range?.from || !range?.to) { setQuote(null); setQuoteError(null); return }
@@ -184,7 +216,6 @@ export default function BookPage() {
   return (
     <div className="min-h-screen bg-stone-50">
       <style>{`
-        /* Airbnb-style diagonal split: top-left=blocked, bottom-right=checkout ok */
         .rdp-day_checkoutOnly {
           position: relative;
         }
@@ -218,9 +249,27 @@ export default function BookPage() {
           position: relative !important;
           z-index: 1 !important;
         }
-        /* Tooltip */
         .rdp-day_checkoutOnly:hover::after {
           content: 'Checkout only';
+          position: absolute;
+          bottom: 110%;
+          left: 50%;
+          transform: translateX(-50%);
+          background: #1c1917;
+          color: white;
+          font-size: 11px;
+          white-space: nowrap;
+          padding: 4px 8px;
+          border-radius: 6px;
+          z-index: 30;
+          pointer-events: none;
+        }
+        /* Too-few-nights: show min stay tooltip */
+        .rdp-day_tooFewNights {
+          position: relative;
+        }
+        .rdp-day_tooFewNights:hover::after {
+          content: attr(data-min-nights);
           position: absolute;
           bottom: 110%;
           left: 50%;
@@ -281,10 +330,35 @@ export default function BookPage() {
               <DayPicker
                 mode="range"
                 selected={range}
-                onSelect={setRange}
+                onSelect={(newRange) => {
+                  if (!newRange?.from || !newRange?.to) { setRange(newRange); return }
+                  // Cap the to-date at the first blocked/checkoutOnly day after from
+                  const cursor = new Date(newRange.from)
+                  cursor.setDate(cursor.getDate() + 1)
+                  let maxTo = newRange.to
+                  while (cursor <= newRange.to) {
+                    const curStr = toDateStr(cursor)
+                    if (availability.checkoutOnlyDates.has(curStr)) {
+                      maxTo = new Date(cursor); break
+                    }
+                    if (availability.blockedDates.has(curStr)) {
+                      // cant check out on a fully blocked day either
+                      cursor.setDate(cursor.getDate() - 1)
+                      maxTo = new Date(cursor); break
+                    }
+                    cursor.setDate(cursor.getDate() + 1)
+                  }
+                  setRange({ from: newRange.from, to: maxTo })
+                }}
                 disabled={isDateDisabled}
-                modifiers={{ checkoutOnly: (date) => isCheckoutOnly(date) }}
-                modifiersClassNames={{ checkoutOnly: 'rdp-day_checkoutOnly' }}
+                modifiers={{
+                  checkoutOnly: (date) => isCheckoutOnly(date),
+                  tooFewNights: (date) => isTooFewNights(date),
+                }}
+                modifiersClassNames={{
+                  checkoutOnly: 'rdp-day_checkoutOnly',
+                  tooFewNights: 'rdp-day_tooFewNights',
+                }}
                 numberOfMonths={2}
                 pagedNavigation
                 showOutsideDays={false}
@@ -309,7 +383,14 @@ export default function BookPage() {
                         <span>{nights} night{nights !== 1 ? 's' : ''}</span>
                       </>
                     )}
-                    {range.from && !range.to && <span className="text-stone-400 ml-1">— select checkout date</span>}
+                    {range.from && !range.to && (
+                      <span className="text-stone-400 ml-1">
+                        — select checkout date
+                        {fromMinNights > 1 && (
+                          <span className="ml-1 text-amber-600 font-medium">· {fromMinNights}-night minimum</span>
+                        )}
+                      </span>
+                    )}
                   </span>
                   <button
                     onClick={() => { setRange(undefined); setQuote(null); setQuoteError(null) }}
@@ -493,33 +574,43 @@ export default function BookPage() {
               {!range?.from && <p className="text-stone-400 text-sm">Select dates to see pricing</p>}
               {range?.from && loadingQuote && <p className="text-stone-400 text-sm animate-pulse">Calculating...</p>}
               {quoteError && <p className="text-red-500 text-sm">{quoteError}</p>}
-              {quote && !loadingQuote && (
-                <div className="space-y-3 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-stone-600">Rent × {quote.nights} nights</span>
-                    <span className="font-medium">${quote.base_rent?.toFixed(2)}</span>
-                  </div>
-                  {quote.fees?.map((f, i) => (
-                    <div key={i} className="flex justify-between">
-                      <span className="text-stone-600">{f.name}</span>
-                      <span className={`font-medium ${f.amount < 0 ? 'text-green-600' : ''}`}>
-                        {f.amount < 0 ? '-' : ''}${Math.abs(f.amount)?.toFixed(2)}
-                      </span>
+              {quote && !loadingQuote && (() => {
+                const cleaningFee = quote.fees?.find(f =>
+                  f.name?.toLowerCase().includes('clean')
+                )?.amount ?? 0
+                const bakedRate = quote.base_rent + cleaningFee
+                const otherFees = quote.fees?.filter(f =>
+                  !f.name?.toLowerCase().includes('clean')
+                ) ?? []
+                const perNight = (bakedRate / quote.nights).toFixed(2)
+                return (
+                  <div className="space-y-3 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-stone-600">${perNight} × {quote.nights} night{quote.nights !== 1 ? 's' : ''}</span>
+                      <span className="font-medium">${bakedRate?.toFixed(2)}</span>
                     </div>
-                  ))}
-                  {quote.taxes?.map((t, i) => (
-                    <div key={i} className="flex justify-between">
-                      <span className="text-stone-600">{t.name}</span>
-                      <span className="font-medium">${t.amount?.toFixed(2)}</span>
+                    {otherFees.map((f, i) => (
+                      <div key={i} className="flex justify-between">
+                        <span className="text-stone-600">{f.name}</span>
+                        <span className={`font-medium ${f.amount < 0 ? 'text-green-600' : ''}`}>
+                          {f.amount < 0 ? '-' : ''}${Math.abs(f.amount)?.toFixed(2)}
+                        </span>
+                      </div>
+                    ))}
+                    {quote.taxes?.map((t, i) => (
+                      <div key={i} className="flex justify-between">
+                        <span className="text-stone-600">{t.name}</span>
+                        <span className="font-medium">${t.amount?.toFixed(2)}</span>
+                      </div>
+                    ))}
+                    <div className="border-t border-stone-100 pt-3 flex justify-between font-semibold text-base">
+                      <span>Total</span>
+                      <span>${quote.total?.toFixed(2)}</span>
                     </div>
-                  ))}
-                  <div className="border-t border-stone-100 pt-3 flex justify-between font-semibold text-base">
-                    <span>Total</span>
-                    <span>${quote.total?.toFixed(2)}</span>
+                    <p className="text-xs text-stone-400 pt-1">No Airbnb or VRBO service fees</p>
                   </div>
-                  <p className="text-xs text-stone-400 pt-1">No Airbnb or VRBO service fees</p>
-                </div>
-              )}
+                )
+              })()}
               {step !== 'dates' && range?.from && range?.to && (
                 <div className="mt-6 pt-6 border-t border-stone-100">
                   <p className="text-xs text-stone-400 uppercase tracking-wide mb-3">Your stay</p>

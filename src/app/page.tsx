@@ -58,12 +58,16 @@ export default async function HomePage() {
   }
 
   const raw       = property as any
-  const title     = raw?.name ?? 'Bluff Haven Retreat'
+  const title     = 'Bluff Haven Retreat'
   const city      = raw?.address?.city ?? ''
   const state     = raw?.address?.state ?? ''
   const location  = [city, state].filter(Boolean).join(', ')
-  const headline  = raw?.headline ?? raw?.summary ?? 'A private escape perched above the bluffs. Stunning views, total seclusion, and every comfort of home.'
-  const description = raw?.description ?? raw?.notes ?? 'Bluff Haven Retreat is a thoughtfully designed vacation home offering sweeping views, peaceful surroundings, and the comforts of a well-appointed home.\n\nWhether you\'re here to unwind, celebrate, or reconnect with nature — this is your place.'
+  const headline  = 'Luxury mountain cabin with breathtaking Smoky Mountain views & a private hot tub'
+  const description = [
+    'Wake up to golden sunrises, soak under the stars in your private hot tub, and watch eagles soar from your deck. Perfectly perched in the Smokies — where every moment becomes a treasured memory.',
+    'Just 20 minutes from Pigeon Forge & Dollywood, 15 miles from Gatlinburg, and 18 miles from Great Smoky Mountains National Park. Adventure is always close, but the cabin makes it hard to leave.',
+    'Floor-to-ceiling windows, a romantic stone fireplace, gourmet coffee bar, full kitchen, Smart TV, high-speed WiFi, arcade games, fire pit, pergola with hanging egg chairs, and a sweeping multi-level deck — every detail curated for your comfort.',
+  ].join('\n\n')
 
   const heroPhoto = raw?.photos?.[0] ?? null
   const amenities = buildAmenities(raw)

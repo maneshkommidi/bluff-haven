@@ -1,11 +1,6 @@
 /**
  * OwnerRez API client
- * Based on official docs: https://api.ownerrez.com/help/v2 and /help/v1
- *
- * Availability: GET v1/listings/{id}/availability
- * Pricing:      TEST v1/quotes (custom HTTP method)
- * Guests:       POST v2/guests
- * Bookings:     POST v2/bookings (after Stripe payment)
+ * v1 for availability + quotes, v2 for guests + bookings
  */
 
 const BASE_V1 = 'https://api.ownerrez.com/v1'
@@ -30,12 +25,10 @@ async function orFetch<T>(url: string, options?: RequestInit): Promise<T> {
     },
     cache: 'no-store',
   })
-
   if (!res.ok) {
     const error = await res.text()
     throw new Error(`OwnerRez API error ${res.status} at ${url}: ${error}`)
   }
-
   return res.json()
 }
 
@@ -66,6 +59,8 @@ export interface BookingPayload {
   adults: number
   children: number
   notes?: string
+  stripe_payment_intent_id?: string
+  total_paid?: number
 }
 
 export interface Booking {
@@ -77,33 +72,13 @@ export interface Booking {
   total: number
 }
 
-// ─── Availability via v1 listings endpoint ────────────────────────────────────
+// ─── Availability ─────────────────────────────────────────────────────────────
 
-/**
- * GET v1/listings/{id}/availability
- * Returns unavailable date ranges for the property.
- * We expand ranges into individual blocked dates for the calendar.
- */
-export async function getAvailability(
-  from?: string,
-  to?: string
-): Promise<AvailabilityDay[]> {
+export async function getAvailability(from?: string, to?: string): Promise<AvailabilityDay[]> {
   const start = from ?? new Date().toISOString().split('T')[0]
   const end   = to   ?? getDateMonthsFromNow(13)
-
-  const data = await orFetch<{
-    items?: { start_date: string; end_date: string }[]
-    StartDate?: string
-    EndDate?: string
-    // v1 may return array directly or wrapped
-    [key: string]: unknown
-  }>(`${BASE_V1}/listings/${PROPERTY_ID}/availability?start=${start}&end=${end}`)
-
-  // v1/listings/{id}/availability returns array of booking objects
-  // Each has arrival (check-in) and departure (check-out) fields
+  const data  = await orFetch<any>(`${BASE_V1}/listings/${PROPERTY_ID}/availability?start=${start}&end=${end}`)
   const bookings: any[] = Array.isArray(data) ? data : []
-
-  // Build set of blocked dates by expanding each booking arrival->departure
   const blockedDates = new Set<string>()
   for (const booking of bookings) {
     if (!booking.arrival || !booking.departure) continue
@@ -120,34 +95,28 @@ export async function getAvailability(
       cursor.setDate(cursor.getDate() + 1)
     }
   }
-
-  // Build full calendar day-by-day
   const result: AvailabilityDay[] = []
-  const cursor = new Date(start + 'T00:00:00')
-  const endDate = new Date(end  + 'T00:00:00')
+  const cursor  = new Date(start + 'T00:00:00')
+  const endDate = new Date(end   + 'T00:00:00')
   while (cursor <= endDate) {
-    const dateStr = cursor.toISOString().split('T')[0]
+    const dateStr =
+      cursor.getFullYear() + '-' +
+      String(cursor.getMonth() + 1).padStart(2, '0') + '-' +
+      String(cursor.getDate()).padStart(2, '0')
     result.push({ date: dateStr, available: !blockedDates.has(dateStr) })
     cursor.setDate(cursor.getDate() + 1)
   }
-
   return result
 }
 
-// ─── Pricing via TEST v1/quotes ───────────────────────────────────────────────
+// ─── Quote ────────────────────────────────────────────────────────────────────
 
-/**
- * TEST v1/quotes
- * Custom HTTP method "TEST" — calculates pricing without creating a quote.
- * Docs: TEST v1/quotes?addCharges=&skipRuleValidation=&ignoreDateConflicts=
- */
 export async function getQuote(
   arrival: string,
   departure: string,
   adults: number = 2,
   children: number = 0
 ): Promise<RateQuote> {
-
   const data = await orFetch<any>(`${BASE_V1}/quotes`, {
     method: 'TEST',
     body: JSON.stringify({
@@ -159,30 +128,22 @@ export async function getQuote(
       Pets: 0,
     }),
   })
-
-  // v1 TEST response: charges array with type 1=rent, 2=fee, 3=tax
   const charges: any[] = data.charges ?? []
-
-  const rentCharge  = charges.find(c => c.type === 1)
-  const feeCharges  = charges.filter(c => c.type === 2)
-  const taxCharges  = charges.filter(c => c.type === 3)
-
-  const base_rent = rentCharge?.amount ?? 0
-  const fees  = feeCharges.map(c => ({ name: c.description, amount: c.amount }))
-  const taxes = taxCharges.map(c => ({ name: c.description, amount: c.amount }))
-
-  // Total = sum of all charge amounts
-  const total = charges.reduce((sum, c) => sum + (c.amount ?? 0), 0)
-
-  // Derive nights from arrival/departure
-  const arrDate = new Date(arrival  + 'T00:00:00')
-  const depDate = new Date(departure + 'T00:00:00')
-  const nights  = Math.round((depDate.getTime() - arrDate.getTime()) / (1000 * 60 * 60 * 24))
-
+  const rentCharge = charges.find(c => c.type === 1)
+  const feeCharges = charges.filter(c => c.type === 2)
+  const taxCharges = charges.filter(c => c.type === 3)
+  const base_rent  = rentCharge?.amount ?? 0
+  const fees       = feeCharges.map(c => ({ name: c.description, amount: c.amount }))
+  const taxes      = taxCharges.map(c => ({ name: c.description, amount: c.amount }))
+  const total      = charges.reduce((sum, c) => sum + (c.amount ?? 0), 0)
+  const arrDate    = new Date(arrival   + 'T00:00:00')
+  const depDate    = new Date(departure + 'T00:00:00')
+  const nights     = Math.round((depDate.getTime() - arrDate.getTime()) / (1000 * 60 * 60 * 24))
   return { total, base_rent, fees, taxes, nights, currency: 'USD' }
 }
 
-// ─── Create guest (v2) ────────────────────────────────────────────────────────
+// ─── Create guest ─────────────────────────────────────────────────────────────
+// Confirmed v2 field names: email_addresses[].address, phones[].number
 
 export async function createGuest(payload: {
   first_name: string
@@ -190,25 +151,73 @@ export async function createGuest(payload: {
   email: string
   phone?: string
 }): Promise<{ id: number }> {
+  const body: any = {
+    first_name: payload.first_name,
+    last_name:  payload.last_name,
+    email_addresses: [{ address: payload.email }],
+  }
+  if (payload.phone) {
+    body.phones = [{ number: payload.phone }]
+  }
   return orFetch<{ id: number }>(`${BASE_V2}/guests`, {
     method: 'POST',
-    body: JSON.stringify(payload),
+    body: JSON.stringify(body),
   })
 }
 
-// ─── Create booking (v2) ──────────────────────────────────────────────────────
+// ─── Create booking ───────────────────────────────────────────────────────────
+// Note: v2 POST /bookings only accepts property_id, guest_id, arrival, departure.
+// adults/children are not writable via API — they show as 0 in OwnerRez.
+// Payment is collected via Stripe; we record the Stripe details in notes
+// since OwnerRez v2 has no writable payments endpoint.
 
-/**
- * POST v2/bookings — creates booking after Stripe payment succeeds.
- */
 export async function createBooking(payload: BookingPayload): Promise<Booking> {
-  return orFetch<Booking>(`${BASE_V2}/bookings`, {
-    method: 'POST',
-    body: JSON.stringify(payload),
+  // Step 1: Create guest
+  const guest = await createGuest({
+    first_name: payload.first_name,
+    last_name:  payload.last_name,
+    email:      payload.email,
+    phone:      payload.phone,
   })
+
+  // Step 2: Build notes with guest count + Stripe payment reference
+  const noteParts = [
+    `Adults: ${payload.adults}, Children: ${payload.children}`,
+    payload.stripe_payment_intent_id
+      ? `Stripe Payment: ${payload.stripe_payment_intent_id}`
+      : '',
+    payload.total_paid
+      ? `Total Paid: $${payload.total_paid.toFixed(2)}`
+      : '',
+    payload.notes ?? '',
+  ].filter(Boolean).join(' | ')
+
+  // Step 3: Create booking
+  const booking = await orFetch<Booking>(`${BASE_V2}/bookings`, {
+    method: 'POST',
+    body: JSON.stringify({
+      property_id: payload.property_id,
+      guest_id:    guest.id,
+      arrival:     payload.arrival,
+      departure:   payload.departure,
+    }),
+  })
+
+  // Step 4: PATCH notes onto the booking
+  try {
+    await orFetch(`${BASE_V2}/bookings/${booking.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ notes: noteParts }),
+    })
+  } catch (e) {
+    // Notes patch failing shouldn't fail the whole booking
+    console.warn('Could not patch booking notes:', e)
+  }
+
+  return booking
 }
 
-// ─── Property info (v2) ───────────────────────────────────────────────────────
+// ─── Property info ────────────────────────────────────────────────────────────
 
 export interface PropertyPhoto {
   id: number
@@ -232,11 +241,7 @@ export interface PropertyDetails {
   bathrooms?: number
   bathrooms_half?: number
   max_guests?: number
-  address?: {
-    city?: string
-    state?: string
-    country?: string
-  }
+  address?: { city?: string; state?: string; country?: string }
   photos: PropertyPhoto[]
   amenities: PropertyAmenity[]
 }
@@ -246,18 +251,12 @@ export async function getProperty(): Promise<Record<string, unknown>> {
 }
 
 export async function getPropertyPhotos(): Promise<PropertyPhoto[]> {
-  // OwnerRez v2 doesn't have a separate photos endpoint.
-  // Photos come as thumbnail_url, thumbnail_url_large, thumbnail_url_medium
-  // on the property object itself — handled in getFullPropertyDetails.
   return []
 }
 
 export async function getPropertyAmenities(): Promise<PropertyAmenity[]> {
-  // OwnerRez v2 doesn't expose a standalone amenities endpoint.
-  // Amenities are returned as part of the property object or field-level data.
   try {
     const data = await orFetch<any>(`${BASE_V2}/properties/${PROPERTY_ID}`)
-    // Some accounts expose amenities as a nested array
     const raw: any[] = data.amenities ?? data.property_amenities ?? []
     return raw.map((a: any, i: number) => ({
       id: a.id ?? i,
@@ -271,8 +270,6 @@ export async function getPropertyAmenities(): Promise<PropertyAmenity[]> {
 
 export async function getFullPropertyDetails(): Promise<PropertyDetails> {
   const property = await getProperty() as any
-
-  // Build photos array from thumbnail fields on the property
   const photos: PropertyPhoto[] = []
   if (property.thumbnail_url_large) {
     photos.push({ id: 1, url: property.thumbnail_url_large, caption: property.name })
@@ -281,15 +278,12 @@ export async function getFullPropertyDetails(): Promise<PropertyDetails> {
   } else if (property.thumbnail_url) {
     photos.push({ id: 1, url: property.thumbnail_url, caption: property.name })
   }
-
-  // Amenities — may come nested on the property object
   const rawAmenities: any[] = property.amenities ?? property.property_amenities ?? []
   const amenities: PropertyAmenity[] = rawAmenities.map((a: any, i: number) => ({
     id: a.id ?? i,
     name: a.name ?? a.amenity_name ?? String(a),
     category: a.category ?? undefined,
   }))
-
   return {
     id: property.id,
     name: property.name ?? 'Bluff Haven Retreat',
