@@ -55,6 +55,17 @@ export default function Header() {
           <a href="/#location" className="text-white/70 text-sm tracking-wide hover:text-[#c9a84c] transition-colors font-light">
             Location
           </a>
+          <div className="flex items-center gap-1 border border-white/10 rounded-sm px-3 py-1.5">
+            <a href="https://www.airbnb.com/h/bluff-haven-retreat" target="_blank" rel="noopener noreferrer"
+              className="text-white/50 text-xs tracking-wide hover:text-[#c9a84c] transition-colors font-light px-2">
+              Airbnb
+            </a>
+            <span className="text-white/20 text-xs">|</span>
+            <a href="https://www.vrbo.com/4657328?dateless=true" target="_blank" rel="noopener noreferrer"
+              className="text-white/50 text-xs tracking-wide hover:text-[#c9a84c] transition-colors font-light px-2">
+              VRBO
+            </a>
+          </div>
           <Link
             href="/book"
             className="relative overflow-hidden border border-[#c9a84c] text-[#c9a84c] text-sm font-medium px-5 py-2.5 rounded-sm hover:bg-[#c9a84c] hover:text-[#1a2e1a] transition-all duration-300 tracking-wider uppercase"
@@ -87,6 +98,19 @@ export default function Header() {
               {label}
             </a>
           ))}
+          <div className="border-t border-[#c9a84c]/10 pt-4 flex items-center gap-6">
+            <span className="text-white/25 text-xs uppercase tracking-widest">Also on</span>
+            <a href="https://www.airbnb.com/h/bluff-haven-retreat" target="_blank" rel="noopener noreferrer"
+              onClick={() => setMobileOpen(false)}
+              className="text-white/50 text-sm tracking-widest uppercase hover:text-[#c9a84c] transition-colors">
+              Airbnb
+            </a>
+            <a href="https://www.vrbo.com/4657328?dateless=true" target="_blank" rel="noopener noreferrer"
+              onClick={() => setMobileOpen(false)}
+              className="text-white/50 text-sm tracking-widest uppercase hover:text-[#c9a84c] transition-colors">
+              VRBO
+            </a>
+          </div>
         </div>
       )}
     </header>
