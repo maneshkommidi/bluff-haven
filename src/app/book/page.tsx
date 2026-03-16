@@ -54,7 +54,7 @@ function BookPageInner() {
             if (!blockedSet.has(toDateStr(prev))) checkoutOnly.add(d.date)
           }
         }
-        for (const d of checkoutOnly) blockedSet.delete(d)
+        checkoutOnly.forEach(d => blockedSet.delete(d))
         setAvailability({ blockedDates: blockedSet, checkoutOnlyDates: checkoutOnly, minNightsMap })
         setAvailabilityLoaded(true)
       })
