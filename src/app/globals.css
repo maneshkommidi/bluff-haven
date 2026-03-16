@@ -2,34 +2,60 @@
 @tailwind components;
 @tailwind utilities;
 
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=Lato:wght@300;400;700&display=swap');
+
 :root {
-  --green-primary: #2d5016;
-  --green-light: #f7f9f4;
+  --forest:    #1a2e1a;
+  --forest-mid:#2d4a2d;
+  --moss:      #4a6741;
+  --gold:      #c9a84c;
+  --gold-light:#e8c87a;
+  --cream:     #faf7f2;
+  --warm-white:#f5f0e8;
+  --bark:      #8b6f47;
+  --charcoal:  #1c1c1c;
 }
 
-html {
-  scroll-behavior: smooth;
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: 'Lato', sans-serif;
+  background: var(--cream);
+  color: var(--charcoal);
 }
 
-/* React Day Picker overrides for availability calendar */
-.rdp {
-  --rdp-cell-size: 44px;
-  --rdp-accent-color: #2d5016;
-  --rdp-background-color: #f0f5ea;
-  margin: 0;
+.font-display {
+  font-family: 'Playfair Display', serif;
 }
 
-.rdp-day_selected:not(.rdp-day_disabled) {
-  background-color: #2d5016;
+/* Grain texture overlay */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.035'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.4;
 }
 
-.rdp-day_range_middle {
-  background-color: #f0f5ea;
-  color: #2d5016;
+/* Gold divider */
+.gold-divider {
+  width: 48px;
+  height: 2px;
+  background: linear-gradient(90deg, var(--gold), var(--gold-light));
+  display: block;
 }
 
-.rdp-day_disabled {
-  opacity: 1;
-  color: #c4b8b0 !important;
-  cursor: not-allowed;
+/* Fade-in animation */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
+.fade-up { animation: fadeUp 0.8s ease forwards; }
+.fade-up-1 { animation: fadeUp 0.8s 0.1s ease both; }
+.fade-up-2 { animation: fadeUp 0.8s 0.25s ease both; }
+.fade-up-3 { animation: fadeUp 0.8s 0.4s ease both; }
+.fade-up-4 { animation: fadeUp 0.8s 0.55s ease both; }
