@@ -36,7 +36,15 @@ function BookPageInner() {
   })
   const [availabilityLoaded, setAvailabilityLoaded] = useState(false)
   const [availabilityError, setAvailabilityError]   = useState<string | null>(null)
+  const [isMobile, setIsMobile] = useState(false)
   const widgetContainerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 640)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
 
   // Load availability
   useEffect(() => {
@@ -253,7 +261,7 @@ function BookPageInner() {
                     disabled={isDateDisabled}
                     modifiers={{ checkoutOnly: isCheckoutOnly, tooFewNights: isTooFewNights }}
                     modifiersClassNames={{ checkoutOnly: 'rdp-day_checkoutOnly', tooFewNights: 'rdp-day_tooFewNights' }}
-                    numberOfMonths={2}
+                    numberOfMonths={isMobile ? 1 : 2}
                     pagedNavigation
                     showOutsideDays={false}
                     modifiersStyles={{
@@ -339,7 +347,7 @@ function BookPageInner() {
             <div className="bg-white rounded-2xl border border-stone-100 p-6 sticky top-6 space-y-5">
               <div>
                 <h3 className="font-semibold text-stone-800 mb-1">Bluff Haven Retreat</h3>
-                <p className="text-xs text-stone-500">Sevierville, TN &middot; 2 bed &middot; 2 bath &middot; 6 guests max</p>
+                <p className="text-xs text-stone-500">Sevierville, TN &middot; 2 bed &middot; 1.5 bath &middot; 6 guests max</p>
               </div>
 
               {/* Show selected dates in sidebar */}
