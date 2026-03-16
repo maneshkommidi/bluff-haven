@@ -1,86 +1,49 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { DayPicker, DateRange } from 'react-day-picker'
 import 'react-day-picker/dist/style.css'
-import { format, differenceInCalendarDays, startOfDay } from 'date-fns'
-import dynamic from 'next/dynamic'
-
-const StripePaymentForm = dynamic(() => import('@/components/StripePaymentForm'), {
-  ssr: false,
-  loading: () => (
-    <div className="space-y-4 animate-pulse">
-      <div className="h-12 bg-stone-100 rounded-lg" />
-      <div className="h-12 bg-stone-100 rounded-lg" />
-      <div className="h-12 bg-stone-100 rounded-lg" />
-    </div>
-  ),
-})
-
-interface Quote {
-  total: number
-  base_rent: number
-  nights: number
-  fees: { name: string; amount: number }[]
-  taxes: { name: string; amount: number }[]
-  currency: string
-}
-
-interface GuestForm {
-  firstName: string
-  lastName: string
-  email: string
-  phone: string
-  adults: number
-  children: number
-  notes: string
-}
+import { format, startOfDay } from 'date-fns'
+import { useSearchParams } from 'next/navigation'
+import { Suspense } from 'react'
 
 interface AvailabilityData {
   blockedDates: Set<string>
   checkoutOnlyDates: Set<string>
-  minNightsMap: Map<string, number>  // minNights per arrival date
+  minNightsMap: Map<string, number>
 }
 
-function toDateStr(date: Date): string {
-  return date.getFullYear() + '-' +
-    String(date.getMonth() + 1).padStart(2, '0') + '-' +
-    String(date.getDate()).padStart(2, '0')
+function toDateStr(d: Date): string {
+  return d.getFullYear() + '-' +
+    String(d.getMonth() + 1).padStart(2, '0') + '-' +
+    String(d.getDate()).padStart(2, '0')
 }
 
-export default function BookPage() {
-  const [range, setRange] = useState<DateRange | undefined>()
+const OR_PROPERTY_ID  = '8dff8078067343349a22031a4afc719e'
+const OR_WIDGET_ID    = '6aafaaafd1c941dbacf4b9990f9681ef'
+
+function BookPageInner() {
+  const searchParams = useSearchParams()
+  const orArrival    = searchParams.get('or_arrival')   ?? ''
+  const orDeparture  = searchParams.get('or_departure') ?? ''
+
+  // If URL has or_arrival/or_departure, we're in widget mode
+  const hasOrParams  = !!(orArrival && orDeparture)
+
+  const [range, setRange]               = useState<DateRange | undefined>()
   const [availability, setAvailability] = useState<AvailabilityData>({
-    blockedDates: new Set(),
-    checkoutOnlyDates: new Set(),
-    minNightsMap: new Map(),
+    blockedDates: new Set(), checkoutOnlyDates: new Set(), minNightsMap: new Map(),
   })
   const [availabilityLoaded, setAvailabilityLoaded] = useState(false)
-  const [availabilityError, setAvailabilityError] = useState<string | null>(null)
-  const [quote, setQuote] = useState<Quote | null>(null)
-  const [quoteError, setQuoteError] = useState<string | null>(null)
-  const [loadingQuote, setLoadingQuote] = useState(false)
-  const [step, setStep] = useState<'dates' | 'details' | 'payment'>('dates')
-  const [form, setForm] = useState<GuestForm>({
-    firstName: '', lastName: '', email: '', phone: '',
-    adults: 2, children: 0, notes: '',
-  })
-  const [clientSecret, setClientSecret] = useState<string | null>(null)
-  const [creatingPayment, setCreatingPayment] = useState(false)
-  const [paymentError, setPaymentError] = useState<string | null>(null)
-  const [touched, setTouched] = useState<Partial<Record<keyof GuestForm, boolean>>>({})
+  const [availabilityError, setAvailabilityError]   = useState<string | null>(null)
+  const widgetContainerRef = useRef<HTMLDivElement>(null)
 
-  const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
-  const isValidPhone = (phone: string) => /^[\+]?[\d\s\-\(\)]{7,15}$/.test(phone.trim())
-
-  const emailError = touched.email && form.email && !isValidEmail(form.email) ? 'Please enter a valid email address' : null
-  const phoneError = touched.phone && form.phone && !isValidPhone(form.phone) ? 'Please enter a valid phone number' : null
-
+  // Load availability
   useEffect(() => {
     fetch('/api/availability')
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
       .then((days: { date: string; available: boolean; minNights?: number }[]) => {
-        const blockedSet = new Set(days.filter(d => !d.available).map(d => d.date))
+        const blockedSet   = new Set(days.filter(d => !d.available).map(d => d.date))
         const checkoutOnly = new Set<string>()
         const minNightsMap = new Map<string, number>()
         for (const d of days) {
@@ -88,56 +51,82 @@ export default function BookPage() {
           if (!d.available) {
             const [y, m, day] = d.date.split('-').map(Number)
             const prev = new Date(y, m - 1, day - 1)
-            const prevStr = toDateStr(prev)
-            if (!blockedSet.has(prevStr)) checkoutOnly.add(d.date)
+            if (!blockedSet.has(toDateStr(prev))) checkoutOnly.add(d.date)
           }
         }
         for (const d of checkoutOnly) blockedSet.delete(d)
         setAvailability({ blockedDates: blockedSet, checkoutOnlyDates: checkoutOnly, minNightsMap })
         setAvailabilityLoaded(true)
       })
-      .catch(err => {
-        console.error('Availability error:', err)
+      .catch(() => {
         setAvailabilityError('Could not load availability. Please refresh.')
         setAvailabilityLoaded(true)
       })
   }, [])
 
+  // Inject widget.js when OR params are present — script reads or_arrival/or_departure from URL
+  useEffect(() => {
+    if (!hasOrParams || !widgetContainerRef.current) return
+
+    const container = widgetContainerRef.current
+    container.innerHTML = ''
+
+    // Create widget div
+    const widgetDiv = document.createElement('div')
+    widgetDiv.className = 'ownerrez-widget'
+    widgetDiv.setAttribute('data-propertyid', OR_PROPERTY_ID)
+    widgetDiv.setAttribute('data-widget-type', 'Booking/Inquiry')
+    widgetDiv.setAttribute('data-widgetid', OR_WIDGET_ID)
+    container.appendChild(widgetDiv)
+
+    // Remove old script + globals
+    document.getElementById('or-widget-script')?.remove()
+    try { delete (window as any).OwnerRezWidgets } catch {}
+    try { delete (window as any).OwnerRez } catch {}
+
+    // Inject fresh script — it reads or_arrival/or_departure from window.location
+    const script = document.createElement('script')
+    script.id    = 'or-widget-script'
+    script.src   = 'https://app.ownerrez.com/widget.js'
+    script.async = true
+    script.onload = () => {
+      let tries = 0
+      const poll = setInterval(() => {
+        tries++
+        if ((window as any).OwnerRezWidgets) {
+          clearInterval(poll)
+          ;(window as any).OwnerRezWidgets.initialize()
+        }
+        if (tries > 40) clearInterval(poll)
+      }, 100)
+    }
+    document.body.appendChild(script)
+
+    // Scroll to widget
+    setTimeout(() => container.scrollIntoView({ behavior: 'smooth', block: 'start' }), 300)
+
+    return () => { document.getElementById('or-widget-script')?.remove() }
+  }, [hasOrParams, orArrival, orDeparture])
+
   const isDateDisabled = useCallback((date: Date): boolean => {
     const today = startOfDay(new Date())
-    // Disable today and all past dates
     if (date <= today) return true
-
     const dateStr = toDateStr(date)
-
-    // Picking check-in: disable all blocked + checkout-only days
     if (!range?.from || range.to) {
       return availability.blockedDates.has(dateStr) || availability.checkoutOnlyDates.has(dateStr)
     }
-
-    // Picking check-out: must be after from
     if (date <= range.from) return true
-
-    // Disable dates that don't meet minimum night requirement
     const nightsFromFrom = Math.round((date.getTime() - range.from.getTime()) / (1000 * 60 * 60 * 24))
     const minN = availability.minNightsMap.get(toDateStr(range.from)) ?? 1
     if (nightsFromFrom < minN) return true
-
-    // Walk from range.from+1 up to and including date.
-    // The first blocked or checkout-only day we hit defines the hard stop.
     const cursor = new Date(range.from)
     cursor.setDate(cursor.getDate() + 1)
     while (cursor <= date) {
       const curStr = toDateStr(cursor)
-      if (availability.checkoutOnlyDates.has(curStr)) {
-        // This day is valid as checkout but nothing beyond it
-        if (cursor.getTime() === date.getTime()) return false
-        return true
-      }
+      if (availability.checkoutOnlyDates.has(curStr)) return cursor.getTime() !== date.getTime()
       if (availability.blockedDates.has(curStr)) return true
       cursor.setDate(cursor.getDate() + 1)
     }
-
     return false
   }, [range, availability])
 
@@ -146,483 +135,280 @@ export default function BookPage() {
     return availability.checkoutOnlyDates.has(toDateStr(date))
   }, [range, availability])
 
-  // Returns the minNights for the current from date (or 1 if none)
-  const fromMinNights = range?.from
-    ? (availability.minNightsMap.get(toDateStr(range.from)) ?? 1)
-    : 1
-
-  // True when picking departure and this date is too close to from
   const isTooFewNights = useCallback((date: Date): boolean => {
     if (!range?.from || range.to) return false
     const nights = Math.round((date.getTime() - range.from.getTime()) / (1000 * 60 * 60 * 24))
-    return nights > 0 && nights < fromMinNights
-  }, [range, fromMinNights])
+    return nights > 0 && nights < (availability.minNightsMap.get(toDateStr(range.from)) ?? 1)
+  }, [range, availability])
 
-  useEffect(() => {
-    if (!range?.from || !range?.to) { setQuote(null); setQuoteError(null); return }
-    setLoadingQuote(true)
-    setQuoteError(null)
+  const fromMinNights = range?.from
+    ? (availability.minNightsMap.get(toDateStr(range.from)) ?? 1) : 1
+
+  const handleRangeSelect = useCallback((newRange: DateRange | undefined) => {
+    if (!newRange?.from || !newRange?.to) { setRange(newRange); return }
+    const cursor = new Date(newRange.from)
+    cursor.setDate(cursor.getDate() + 1)
+    let maxTo = newRange.to
+    while (cursor <= newRange.to) {
+      const curStr = toDateStr(cursor)
+      if (availability.checkoutOnlyDates.has(curStr)) { maxTo = new Date(cursor); break }
+      if (availability.blockedDates.has(curStr)) { cursor.setDate(cursor.getDate() - 1); maxTo = new Date(cursor); break }
+      cursor.setDate(cursor.getDate() + 1)
+    }
+    setRange({ from: newRange.from, to: maxTo })
+  }, [availability])
+
+  // When guest clicks Book — navigate to same page with OR params in URL
+  const handleBook = useCallback(() => {
+    if (!range?.from || !range?.to) return
     const arrival   = format(range.from, 'yyyy-MM-dd')
     const departure = format(range.to,   'yyyy-MM-dd')
-    fetch(`/api/quote?arrival=${arrival}&departure=${departure}&adults=${form.adults}&children=${form.children}`)
-      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
-      .then(data => { if (data.error) throw new Error(data.error); setQuote(data) })
-      .catch(err => { console.error('Quote error:', err); setQuoteError('Could not load pricing. Try different dates.') })
-      .finally(() => setLoadingQuote(false))
-  }, [range, form.adults, form.children])
+    window.location.href = `/book?or_arrival=${arrival}&or_departure=${departure}`
+  }, [range])
 
-  const nights = range?.from && range?.to ? differenceInCalendarDays(range.to, range.from) : 0
-  const guestCount = form.adults + form.children
-  const guestCountValid = guestCount >= 1 && guestCount <= 6
-  const canContinueFromDates   = range?.from && range?.to && nights > 0 && quote && !loadingQuote && guestCountValid
-  const canContinueFromDetails = form.firstName && form.lastName && form.email && form.phone && isValidEmail(form.email) && isValidPhone(form.phone)
+  const nights  = range?.from && range?.to
+    ? Math.round((range.to.getTime() - range.from.getTime()) / (1000 * 60 * 60 * 24)) : 0
+  const canBook = !!(range?.from && range?.to && nights > 0)
 
-  const handleContinueToPayment = async () => {
-    if (!range?.from || !range?.to || !quote) return
-    setCreatingPayment(true)
-    setPaymentError(null)
-    try {
-      const res = await fetch('/api/booking', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          arrival:   format(range.from, 'yyyy-MM-dd'),
-          departure: format(range.to,   'yyyy-MM-dd'),
-          adults:    form.adults,
-          children:  form.children,
-          guest: {
-            firstName: form.firstName,
-            lastName:  form.lastName,
-            email:     form.email,
-            phone:     form.phone,
-            notes:     form.notes,
-          },
-        }),
-      })
-      const data = await res.json()
-      if (!res.ok || data.error) throw new Error(data.error ?? 'Payment setup failed')
-      setClientSecret(data.clientSecret)
-      setStep('payment')
-    } catch (err: any) {
-      setPaymentError(err.message ?? 'Could not initialize payment. Please try again.')
-    } finally {
-      setCreatingPayment(false)
-    }
-  }
-
-  const stepOrder = { dates: 0, details: 1, payment: 2 }
-  const currentOrder = stepOrder[step]
+  // Parse OR params back into display dates
+  const displayArrival   = orArrival   ? new Date(orArrival   + 'T00:00:00') : null
+  const displayDeparture = orDeparture ? new Date(orDeparture + 'T00:00:00') : null
+  const displayNights    = displayArrival && displayDeparture
+    ? Math.round((displayDeparture.getTime() - displayArrival.getTime()) / (1000 * 60 * 60 * 24)) : 0
 
   return (
     <div className="min-h-screen bg-stone-50">
       <style>{`
-        .rdp-day_checkoutOnly {
-          position: relative;
+        .rdp-day_checkoutOnly { position: relative; }
+        .rdp-day_checkoutOnly button, .rdp-day_checkoutOnly .rdp-day_button {
+          position: relative !important; cursor: not-allowed !important;
+          overflow: hidden !important; border-radius: 50% !important;
+          color: #374151 !important; background: transparent !important;
         }
-        .rdp-day_checkoutOnly button,
-        .rdp-day_checkoutOnly .rdp-day_button {
-          position: relative !important;
-          cursor: not-allowed !important;
-          overflow: hidden !important;
-          border-radius: 50% !important;
-          color: #374151 !important;
-          background: transparent !important;
+        .rdp-day_checkoutOnly button::before, .rdp-day_checkoutOnly .rdp-day_button::before {
+          content: '' !important; position: absolute !important; inset: 0 !important;
+          background: linear-gradient(to bottom right, #d1d5db 50%, transparent 50%) !important;
+          border-radius: 50% !important; pointer-events: none !important; z-index: 0 !important;
         }
-        .rdp-day_checkoutOnly button::before,
-        .rdp-day_checkoutOnly .rdp-day_button::before {
-          content: '' !important;
-          position: absolute !important;
-          inset: 0 !important;
-          background: linear-gradient(
-            to bottom right,
-            #d1d5db 0%,
-            #d1d5db 50%,
-            transparent 50%,
-            transparent 100%
-          ) !important;
-          border-radius: 50% !important;
-          pointer-events: none !important;
-          z-index: 0 !important;
-        }
-        .rdp-day_checkoutOnly button > *,
-        .rdp-day_checkoutOnly .rdp-day_button > * {
-          position: relative !important;
-          z-index: 1 !important;
+        .rdp-day_checkoutOnly button > *, .rdp-day_checkoutOnly .rdp-day_button > * {
+          position: relative !important; z-index: 1 !important;
         }
         .rdp-day_checkoutOnly:hover::after {
-          content: 'Checkout only';
-          position: absolute;
-          bottom: 110%;
-          left: 50%;
-          transform: translateX(-50%);
-          background: #1c1917;
-          color: white;
-          font-size: 11px;
-          white-space: nowrap;
-          padding: 4px 8px;
-          border-radius: 6px;
-          z-index: 30;
-          pointer-events: none;
+          content: 'Checkout only'; position: absolute; bottom: 110%; left: 50%;
+          transform: translateX(-50%); background: #1c1917; color: white;
+          font-size: 11px; white-space: nowrap; padding: 4px 8px; border-radius: 6px;
+          z-index: 30; pointer-events: none;
         }
-        /* Too-few-nights: show min stay tooltip */
-        .rdp-day_tooFewNights {
-          position: relative;
-        }
+        .rdp-day_tooFewNights { position: relative; }
         .rdp-day_tooFewNights:hover::after {
-          content: attr(data-min-nights);
-          position: absolute;
-          bottom: 110%;
-          left: 50%;
-          transform: translateX(-50%);
-          background: #1c1917;
-          color: white;
-          font-size: 11px;
-          white-space: nowrap;
-          padding: 4px 8px;
-          border-radius: 6px;
-          z-index: 30;
-          pointer-events: none;
+          content: 'Min stay not met'; position: absolute; bottom: 110%; left: 50%;
+          transform: translateX(-50%); background: #1c1917; color: white;
+          font-size: 11px; white-space: nowrap; padding: 4px 8px; border-radius: 6px;
+          z-index: 30; pointer-events: none;
         }
       `}</style>
 
-      <div className="max-w-5xl mx-auto px-6 py-12">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
+
+        {/* Header */}
         <div className="mb-8">
-          <a href="/" className="text-stone-500 text-sm hover:text-stone-700 transition-colors">← Bluff Haven Retreat</a>
-          <h1 className="text-3xl font-bold text-stone-800 mt-3">Book your stay</h1>
-          <p className="text-stone-500 mt-1">Best rate guaranteed — no service fees</p>
+          <a href="/" className="text-stone-500 text-sm hover:text-stone-700 transition-colors">
+            &larr; Bluff Haven Retreat
+          </a>
+          <h1 className="text-2xl sm:text-3xl font-bold text-stone-800 mt-3">Book your stay</h1>
+          <p className="text-stone-500 mt-1">Best rate guaranteed &mdash; no service fees</p>
         </div>
 
         {/* Step indicator */}
         <div className="flex items-center gap-2 mb-8">
-          {(['dates', 'details', 'payment'] as const).map((s, i) => {
-            const sOrder = stepOrder[s]
-            const isActive = s === step
-            const isDone = sOrder < currentOrder
-            const labels = ['Dates', 'Details', 'Payment']
-            return (
-              <div key={s} className="flex items-center gap-2">
-                <div className={`flex items-center gap-1.5 text-sm font-medium transition-colors ${
-                  isActive ? 'text-stone-800' : isDone ? 'text-stone-500' : 'text-stone-300'
-                }`}>
-                  <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs ${
-                    isDone ? 'bg-stone-800 text-white' :
-                    isActive ? 'bg-stone-800 text-white' :
-                    'bg-stone-200 text-stone-400'
-                  }`}>
-                    {isDone ? '✓' : i + 1}
-                  </span>
-                  {labels[i]}
-                </div>
-                {i < 2 && <div className={`w-8 h-px ${isDone ? 'bg-stone-400' : 'bg-stone-200'}`} />}
-              </div>
-            )
-          })}
+          <div className="flex items-center gap-1.5 text-sm font-medium text-stone-500">
+            <span className="w-5 h-5 rounded-full bg-stone-800 text-white flex items-center justify-center text-xs">
+              {hasOrParams ? '✓' : '1'}
+            </span>
+            Dates
+          </div>
+          <div className={`w-8 h-px ${hasOrParams ? 'bg-stone-400' : 'bg-stone-200'}`} />
+          <div className={`flex items-center gap-1.5 text-sm font-medium ${hasOrParams ? 'text-stone-800' : 'text-stone-300'}`}>
+            <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs ${hasOrParams ? 'bg-stone-800 text-white' : 'bg-stone-200 text-stone-400'}`}>
+              2
+            </span>
+            Details &amp; Payment
+          </div>
         </div>
 
         <div className="grid md:grid-cols-3 gap-8">
-          <div className="md:col-span-2 space-y-6">
+          <div className="md:col-span-2 space-y-5">
 
-            {/* Step 1: Calendar */}
-            <div className="bg-white rounded-2xl border border-stone-100 p-6">
-              <h2 className="font-semibold text-stone-800 mb-1">Select dates</h2>
-              {!availabilityLoaded && <p className="text-stone-400 text-sm mb-4 animate-pulse">Loading availability...</p>}
-              {availabilityError && <p className="text-red-500 text-sm mb-4">{availabilityError}</p>}
-              <DayPicker
-                mode="range"
-                selected={range}
-                onSelect={(newRange) => {
-                  if (!newRange?.from || !newRange?.to) { setRange(newRange); return }
-                  // Cap the to-date at the first blocked/checkoutOnly day after from
-                  const cursor = new Date(newRange.from)
-                  cursor.setDate(cursor.getDate() + 1)
-                  let maxTo = newRange.to
-                  while (cursor <= newRange.to) {
-                    const curStr = toDateStr(cursor)
-                    if (availability.checkoutOnlyDates.has(curStr)) {
-                      maxTo = new Date(cursor); break
-                    }
-                    if (availability.blockedDates.has(curStr)) {
-                      // cant check out on a fully blocked day either
-                      cursor.setDate(cursor.getDate() - 1)
-                      maxTo = new Date(cursor); break
-                    }
-                    cursor.setDate(cursor.getDate() + 1)
-                  }
-                  setRange({ from: newRange.from, to: maxTo })
-                }}
-                disabled={isDateDisabled}
-                modifiers={{
-                  checkoutOnly: (date) => isCheckoutOnly(date),
-                  tooFewNights: (date) => isTooFewNights(date),
-                }}
-                modifiersClassNames={{
-                  checkoutOnly: 'rdp-day_checkoutOnly',
-                  tooFewNights: 'rdp-day_tooFewNights',
-                }}
-                numberOfMonths={2}
-                pagedNavigation
-                showOutsideDays={false}
-                modifiersStyles={{
-                  disabled:     { color: '#c4b8b0', cursor: 'not-allowed' },
-                  selected:     { backgroundColor: '#292524', color: 'white', borderRadius: '100%' },
-                  range_start:  { backgroundColor: '#292524', color: 'white', borderRadius: '100% 0 0 100%' },
-                  range_end:    { backgroundColor: '#292524', color: 'white', borderRadius: '0 100% 100% 0' },
-                  range_middle: { backgroundColor: '#f5f4f3', color: '#292524', borderRadius: 0 },
-                  today:        { fontWeight: '700' },
-                }}
-              />
-              {(range?.from || range?.to) && (
-                <div className="mt-3 flex items-center justify-between p-3 bg-stone-50 rounded-lg text-sm text-stone-600">
-                  <span>
-                    {range.from && <span className="font-medium">{format(range.from, 'MMM d')}</span>}
-                    {range.from && range.to && (
-                      <>
-                        {' → '}
-                        <span className="font-medium">{format(range.to, 'MMM d, yyyy')}</span>
-                        {' · '}
-                        <span>{nights} night{nights !== 1 ? 's' : ''}</span>
-                      </>
-                    )}
-                    {range.from && !range.to && (
-                      <span className="text-stone-400 ml-1">
-                        — select checkout date
-                        {fromMinNights > 1 && (
-                          <span className="ml-1 text-amber-600 font-medium">· {fromMinNights}-night minimum</span>
+            {/* Step 1: Calendar — hidden once dates are confirmed */}
+            {!hasOrParams && (
+              <>
+                <div className="bg-white rounded-2xl border border-stone-100 p-5 sm:p-6">
+                  <h2 className="font-semibold text-stone-800 mb-4">Select dates</h2>
+                  {!availabilityLoaded && <p className="text-stone-400 text-sm mb-4 animate-pulse">Loading availability...</p>}
+                  {availabilityError  && <p className="text-red-500 text-sm mb-4">{availabilityError}</p>}
+                  <DayPicker
+                    mode="range"
+                    selected={range}
+                    onSelect={handleRangeSelect}
+                    disabled={isDateDisabled}
+                    modifiers={{ checkoutOnly: isCheckoutOnly, tooFewNights: isTooFewNights }}
+                    modifiersClassNames={{ checkoutOnly: 'rdp-day_checkoutOnly', tooFewNights: 'rdp-day_tooFewNights' }}
+                    numberOfMonths={2}
+                    pagedNavigation
+                    showOutsideDays={false}
+                    modifiersStyles={{
+                      disabled:     { color: '#c4b8b0', cursor: 'not-allowed' },
+                      selected:     { backgroundColor: '#292524', color: 'white', borderRadius: '100%' },
+                      range_start:  { backgroundColor: '#292524', color: 'white', borderRadius: '100% 0 0 100%' },
+                      range_end:    { backgroundColor: '#292524', color: 'white', borderRadius: '0 100% 100% 0' },
+                      range_middle: { backgroundColor: '#f5f4f3', color: '#292524', borderRadius: 0 },
+                      today:        { fontWeight: '700' },
+                    }}
+                  />
+                  {range?.from && (
+                    <div className="mt-3 flex items-center justify-between p-3 bg-stone-50 rounded-lg text-sm text-stone-600">
+                      <span>
+                        <span className="font-medium">{format(range.from, 'MMM d')}</span>
+                        {range.to ? (
+                          <>
+                            {' \u2192 '}
+                            <span className="font-medium">{format(range.to, 'MMM d, yyyy')}</span>
+                            {' \u00B7 '}
+                            <span>{nights} night{nights !== 1 ? 's' : ''}</span>
+                          </>
+                        ) : (
+                          <span className="text-stone-400 ml-1">
+                            &mdash; select checkout
+                            {fromMinNights > 1 && <span className="ml-1 text-amber-600 font-medium">&middot; {fromMinNights}-night min</span>}
+                          </span>
                         )}
                       </span>
-                    )}
-                  </span>
-                  <button
-                    onClick={() => { setRange(undefined); setQuote(null); setQuoteError(null) }}
-                    className="text-stone-400 hover:text-stone-700 text-xs underline underline-offset-2 transition-colors ml-4 flex-shrink-0"
-                  >
-                    Clear dates
-                  </button>
+                      <button onClick={() => setRange(undefined)} className="text-stone-400 hover:text-stone-700 text-xs underline underline-offset-2 ml-4 flex-shrink-0">
+                        Clear
+                      </button>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
 
-            {/* Guest count */}
-            {range?.from && range?.to && (
-              <div className="bg-white rounded-2xl border border-stone-100 p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="font-semibold text-stone-800">Guests</h2>
-                  <span className={`text-xs font-medium px-2 py-1 rounded-full ${
-                    form.adults + form.children >= 6
-                      ? 'bg-red-50 text-red-600'
-                      : 'bg-stone-100 text-stone-500'
-                  }`}>
-                    {form.adults + form.children} / 6 max
-                  </span>
-                </div>
-                <div className="flex gap-6">
-                  <div>
-                    <label className="text-sm text-stone-600 block mb-1">Adults</label>
-                    <select
-                      className="border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-stone-800"
-                      value={form.adults}
-                      onChange={e => {
-                        const adults = parseInt(e.target.value)
-                        const maxChildren = Math.max(0, 6 - adults)
-                        setForm(f => ({
-                          ...f,
-                          adults,
-                          children: Math.min(f.children, maxChildren),
-                        }))
-                      }}
-                    >
-                      {[1,2,3,4,5,6].map(n => (
-                        <option key={n} value={n}>{n} adult{n !== 1 ? 's' : ''}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-sm text-stone-600 block mb-1">Children</label>
-                    <select
-                      className="border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-stone-800"
-                      value={form.children}
-                      onChange={e => setForm(f => ({ ...f, children: parseInt(e.target.value) }))}
-                    >
-                      {[0,1,2,3,4,5].map(n => {
-                        const wouldExceed = form.adults + n > 6
-                        return (
-                          <option key={n} value={n} disabled={wouldExceed}>
-                            {n} child{n !== 1 ? 'ren' : ''}{wouldExceed ? ' (max reached)' : ''}
-                          </option>
-                        )
-                      })}
-                    </select>
-                  </div>
-                </div>
-                {form.adults + form.children >= 6 && (
-                  <p className="mt-3 text-xs text-red-500">
-                    Maximum occupancy is 6 guests. Please adjust your guest count.
-                  </p>
-                )}
-              </div>
-            )}
-
-            {/* Step 2: Guest details */}
-            {step !== 'dates' && (
-              <div className="bg-white rounded-2xl border border-stone-100 p-6">
-                <h2 className="font-semibold text-stone-800 mb-4">Your details</h2>
-                <div className="grid sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-sm text-stone-600 block mb-1">First name</label>
-                    <input className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-stone-800"
-                      value={form.firstName} onChange={e => setForm(f => ({ ...f, firstName: e.target.value }))} placeholder="Jane" />
-                  </div>
-                  <div>
-                    <label className="text-sm text-stone-600 block mb-1">Last name</label>
-                    <input className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-stone-800"
-                      value={form.lastName} onChange={e => setForm(f => ({ ...f, lastName: e.target.value }))} placeholder="Smith" />
-                  </div>
-                  <div>
-                    <label className="text-sm text-stone-600 block mb-1">Email</label>
-                    <input
-                      type="email"
-                      className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 transition-colors ${
-                        emailError ? 'border-red-300 focus:ring-red-400' : 'border-stone-200 focus:ring-stone-800'
-                      }`}
-                      value={form.email}
-                      onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
-                      onBlur={() => setTouched(t => ({ ...t, email: true }))}
-                      placeholder="jane@example.com"
-                    />
-                    {emailError && <p className="mt-1 text-xs text-red-500">{emailError}</p>}
-                  </div>
-                  <div>
-                    <label className="text-sm text-stone-600 block mb-1">Phone</label>
-                    <input
-                      type="tel"
-                      className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 transition-colors ${
-                        phoneError ? 'border-red-300 focus:ring-red-400' : 'border-stone-200 focus:ring-stone-800'
-                      }`}
-                      value={form.phone}
-                      onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
-                      onBlur={() => setTouched(t => ({ ...t, phone: true }))}
-                      placeholder="+1 (555) 000-0000"
-                    />
-                    {phoneError && <p className="mt-1 text-xs text-red-500">{phoneError}</p>}
-                  </div>
-                  <div className="sm:col-span-2">
-                    <label className="text-sm text-stone-600 block mb-1">Special requests <span className="text-stone-400">(optional)</span></label>
-                    <textarea rows={3} className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-stone-800 resize-none"
-                      value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
-                      placeholder="Early check-in, anniversary, accessibility needs..." />
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Step 3: Payment */}
-            {step === 'payment' && clientSecret && (
-              <div className="bg-white rounded-2xl border border-stone-100 p-6">
-                <h2 className="font-semibold text-stone-800 mb-1">Payment</h2>
-                <p className="text-stone-500 text-sm mb-6">
-                  Your card will be charged ${quote?.total.toFixed(2)} once you confirm below.
-                </p>
-                <StripePaymentForm
-                  clientSecret={clientSecret}
-                  total={quote!.total}
-                  arrival={format(range!.from!, 'yyyy-MM-dd')}
-                  departure={format(range!.to!, 'yyyy-MM-dd')}
-                  guestName={`${form.firstName} ${form.lastName}`}
-                />
-              </div>
-            )}
-
-            {/* Action buttons */}
-            {step === 'dates' && (
-              <button onClick={() => setStep('details')} disabled={!canContinueFromDates}
-                className="w-full bg-stone-800 text-white font-semibold py-4 rounded-xl hover:bg-stone-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-                {!range?.from ? 'Select check-in date' :
-                 !range?.to   ? 'Select check-out date' :
-                 loadingQuote  ? 'Calculating price...' :
-                 quoteError    ? 'Select different dates' :
-                                 'Continue to your details →'}
-              </button>
-            )}
-
-            {step === 'details' && (
-              <div className="space-y-3">
-                {paymentError && (
-                  <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">
-                    {paymentError}
-                  </div>
-                )}
-                <button onClick={handleContinueToPayment} disabled={!canContinueFromDetails || creatingPayment}
-                  className="w-full bg-stone-800 text-white font-semibold py-4 rounded-xl hover:bg-stone-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
-                  {creatingPayment ? (
-                    <>
-                      <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                      </svg>
-                      Setting up payment...
-                    </>
-                  ) : 'Continue to payment →'}
+                <button
+                  onClick={handleBook}
+                  disabled={!canBook}
+                  className="w-full bg-stone-800 text-white font-semibold py-4 rounded-xl hover:bg-stone-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed text-base"
+                >
+                  {!range?.from ? 'Select check-in date' :
+                   !range?.to   ? 'Select check-out date' :
+                                  `Book ${nights} night${nights !== 1 ? 's' : ''} \u2192`}
                 </button>
-              </div>
+              </>
+            )}
+
+            {/* Step 2: OwnerRez widget — shown after redirect with OR params */}
+            {hasOrParams && (
+              <>
+                {/* Confirmed dates summary */}
+                <div className="bg-white rounded-2xl border border-stone-100 p-5 sm:p-6">
+                  <div className="flex items-center justify-between">
+                    <h2 className="font-semibold text-stone-800">Your dates</h2>
+                    <a href="/book" className="text-xs text-stone-500 hover:text-stone-800 underline underline-offset-2 transition-colors">
+                      Change dates
+                    </a>
+                  </div>
+                  {displayArrival && displayDeparture && (
+                    <div className="mt-3 p-3 bg-stone-50 rounded-lg text-sm text-stone-600">
+                      <span className="font-medium">{format(displayArrival, 'MMM d')}</span>
+                      {' \u2192 '}
+                      <span className="font-medium">{format(displayDeparture, 'MMM d, yyyy')}</span>
+                      {' \u00B7 '}
+                      <span>{displayNights} night{displayNights !== 1 ? 's' : ''}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* OwnerRez widget — widget.js reads or_arrival/or_departure from page URL */}
+                <div className="bg-white rounded-2xl border border-stone-100 p-5 sm:p-6">
+                  <h2 className="font-semibold text-stone-800 mb-1">Guest details &amp; payment</h2>
+                  <p className="text-stone-500 text-sm mb-5">Secure checkout &middot; Powered by Stripe</p>
+                  <div ref={widgetContainerRef} />
+                </div>
+              </>
             )}
           </div>
 
-          {/* Price summary sidebar */}
+          {/* Sidebar */}
           <div className="md:col-span-1">
-            <div className="bg-white rounded-2xl border border-stone-100 p-6 sticky top-6">
-              <h3 className="font-semibold text-stone-800 mb-4">Price summary</h3>
-              {!range?.from && <p className="text-stone-400 text-sm">Select dates to see pricing</p>}
-              {range?.from && loadingQuote && <p className="text-stone-400 text-sm animate-pulse">Calculating...</p>}
-              {quoteError && <p className="text-red-500 text-sm">{quoteError}</p>}
-              {quote && !loadingQuote && (() => {
-                const cleaningFee = quote.fees?.find(f =>
-                  f.name?.toLowerCase().includes('clean')
-                )?.amount ?? 0
-                const bakedRate = quote.base_rent + cleaningFee
-                const otherFees = quote.fees?.filter(f =>
-                  !f.name?.toLowerCase().includes('clean')
-                ) ?? []
-                const perNight = (bakedRate / quote.nights).toFixed(2)
-                return (
-                  <div className="space-y-3 text-sm">
+            <div className="bg-white rounded-2xl border border-stone-100 p-6 sticky top-6 space-y-5">
+              <div>
+                <h3 className="font-semibold text-stone-800 mb-1">Bluff Haven Retreat</h3>
+                <p className="text-xs text-stone-500">Sevierville, TN &middot; 2 bed &middot; 2 bath &middot; 6 guests max</p>
+              </div>
+
+              {/* Show selected dates in sidebar */}
+              {(canBook || hasOrParams) && (
+                <div className="pt-4 border-t border-stone-100">
+                  <p className="text-xs text-stone-400 uppercase tracking-wide mb-2">Your stay</p>
+                  <div className="space-y-1.5 text-sm">
                     <div className="flex justify-between">
-                      <span className="text-stone-600">${perNight} × {quote.nights} night{quote.nights !== 1 ? 's' : ''}</span>
-                      <span className="font-medium">${bakedRate?.toFixed(2)}</span>
+                      <span className="text-stone-500">Check-in</span>
+                      <span className="font-medium text-stone-800">
+                        {hasOrParams && displayArrival   ? format(displayArrival,   'MMM d, yyyy')
+                         : range?.from                   ? format(range.from,        'MMM d, yyyy') : '—'}
+                      </span>
                     </div>
-                    {otherFees.map((f, i) => (
-                      <div key={i} className="flex justify-between">
-                        <span className="text-stone-600">{f.name}</span>
-                        <span className={`font-medium ${f.amount < 0 ? 'text-green-600' : ''}`}>
-                          {f.amount < 0 ? '-' : ''}${Math.abs(f.amount)?.toFixed(2)}
-                        </span>
-                      </div>
-                    ))}
-                    {quote.taxes?.map((t, i) => (
-                      <div key={i} className="flex justify-between">
-                        <span className="text-stone-600">{t.name}</span>
-                        <span className="font-medium">${t.amount?.toFixed(2)}</span>
-                      </div>
-                    ))}
-                    <div className="border-t border-stone-100 pt-3 flex justify-between font-semibold text-base">
-                      <span>Total</span>
-                      <span>${quote.total?.toFixed(2)}</span>
+                    <div className="flex justify-between">
+                      <span className="text-stone-500">Check-out</span>
+                      <span className="font-medium text-stone-800">
+                        {hasOrParams && displayDeparture ? format(displayDeparture, 'MMM d, yyyy')
+                         : range?.to                     ? format(range.to,          'MMM d, yyyy') : '—'}
+                      </span>
                     </div>
-                    <p className="text-xs text-stone-400 pt-1">No Airbnb or VRBO service fees</p>
+                    <div className="flex justify-between">
+                      <span className="text-stone-500">Nights</span>
+                      <span className="font-medium text-stone-800">{hasOrParams ? displayNights : nights}</span>
+                    </div>
                   </div>
-                )
-              })()}
-              {step !== 'dates' && range?.from && range?.to && (
-                <div className="mt-6 pt-6 border-t border-stone-100">
-                  <p className="text-xs text-stone-400 uppercase tracking-wide mb-3">Your stay</p>
-                  <p className="text-sm font-medium text-stone-800">Bluff Haven Retreat</p>
-                  <p className="text-xs text-stone-500 mt-1">{format(range.from, 'MMM d')} – {format(range.to, 'MMM d, yyyy')}</p>
-                  <p className="text-xs text-stone-500">{nights} night{nights !== 1 ? 's' : ''} · {form.adults + form.children} guest{form.adults + form.children !== 1 ? 's' : ''}</p>
                 </div>
               )}
+
+              <div className="pt-4 border-t border-stone-100 space-y-2.5">
+                {[
+                  'No Airbnb or VRBO service fees',
+                  'Secure payment via Stripe',
+                  'Instant booking confirmation',
+                  'Direct host communication',
+                ].map(text => (
+                  <div key={text} className="flex items-start gap-2 text-sm text-stone-600">
+                    <span className="text-green-600 font-bold flex-shrink-0">&#10003;</span>
+                    <span>{text}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="pt-4 border-t border-stone-100 text-sm text-stone-600 space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-stone-500">Check-in</span>
+                  <span className="font-medium">After 4:00 PM</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-stone-500">Check-out</span>
+                  <span className="font-medium">Before 10:00 AM</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </div>
     </div>
+  )
+}
+
+export default function BookPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-stone-50 flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-stone-300 border-t-stone-800 rounded-full animate-spin" />
+      </div>
+    }>
+      <BookPageInner />
+    </Suspense>
   )
 }
