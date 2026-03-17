@@ -45,21 +45,24 @@ export default function Header() {
         </Link>
 
         {/* Desktop nav */}
-        <nav className="hidden sm:flex items-center gap-8">
-          <a href="/#amenities" className="text-white/70 text-sm tracking-wide hover:text-[#c9a84c] transition-colors font-light">
+        <nav className="hidden lg:flex items-center gap-6">
+          <a href="/#amenities" className="text-white/70 text-xs tracking-wide hover:text-[#c9a84c] transition-colors font-light whitespace-nowrap">
             Amenities
           </a>
-          <a href="/#about" className="text-white/70 text-sm tracking-wide hover:text-[#c9a84c] transition-colors font-light">
+          <a href="/#about" className="text-white/70 text-xs tracking-wide hover:text-[#c9a84c] transition-colors font-light whitespace-nowrap">
             About
           </a>
-          <a href="/#location" className="text-white/70 text-sm tracking-wide hover:text-[#c9a84c] transition-colors font-light">
+          <a href="/#location" className="text-white/70 text-xs tracking-wide hover:text-[#c9a84c] transition-colors font-light whitespace-nowrap">
             Location
           </a>
-          <a href="/gallery" className="text-white/70 text-sm tracking-wide hover:text-[#c9a84c] transition-colors font-light">
+          <a href="/gallery" className="text-white/70 text-xs tracking-wide hover:text-[#c9a84c] transition-colors font-light whitespace-nowrap">
             Gallery
           </a>
-          <a href="/#reviews" className="text-white/70 text-sm tracking-wide hover:text-[#c9a84c] transition-colors font-light">
+          <a href="/#reviews" className="text-white/70 text-xs tracking-wide hover:text-[#c9a84c] transition-colors font-light whitespace-nowrap">
             Reviews
+          </a>
+          <a href="/contact" className="text-white/70 text-xs tracking-wide hover:text-[#c9a84c] transition-colors font-light whitespace-nowrap">
+            Contact
           </a>
           <div className="flex items-center gap-1 border border-white/10 rounded-sm px-3 py-1.5">
             <a href="https://www.airbnb.com/h/bluff-haven-retreat" target="_blank" rel="noopener noreferrer"
@@ -81,7 +84,7 @@ export default function Header() {
         </nav>
 
         {/* Mobile */}
-        <div className="flex sm:hidden items-center gap-3">
+        <div className="flex lg:hidden items-center gap-3">
           <Link href="/book" className="border border-[#c9a84c] text-[#c9a84c] text-xs font-medium px-3 py-1.5 rounded-sm tracking-wider uppercase">
             Book
           </Link>
@@ -97,8 +100,8 @@ export default function Header() {
 
       {/* Mobile menu */}
       {mobileOpen && (
-        <div className="sm:hidden bg-[#1a2e1a]/98 border-t border-[#c9a84c]/20 px-6 py-5 space-y-4">
-          {[['/#amenities','Amenities'],['/#about','About'],['/#location','Location'],['/gallery','Gallery'],['/#reviews','Reviews']].map(([href, label]) => (
+        <div className="lg:hidden bg-[#1a2e1a]/98 border-t border-[#c9a84c]/20 px-6 py-5 space-y-4">
+          {[['/#amenities','Amenities'],['/#about','About'],['/#location','Location'],['/gallery','Gallery'],['/#reviews','Reviews'],['/contact','Contact']].map(([href, label]) => (
             <a key={href} href={href} onClick={() => setMobileOpen(false)}
               className="block text-white/70 text-sm tracking-widest uppercase hover:text-[#c9a84c] transition-colors py-1">
               {label}

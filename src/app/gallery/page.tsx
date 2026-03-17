@@ -14,6 +14,13 @@ export default function GalleryPage() {
   const [loading, setLoading]   = useState(true)
   const [error, setError]       = useState<string | null>(null)
   const [lightbox, setLightbox] = useState<number | null>(null)
+  const [showTop, setShowTop]   = useState(false)
+
+  useEffect(() => {
+    const onScroll = () => setShowTop(window.scrollY > 400)
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
 
   useEffect(() => {
     fetch('/api/photos')
@@ -198,6 +205,18 @@ export default function GalleryPage() {
             </svg>
           </button>
         </div>
+      )}
+      {/* Back to top */}
+      {showTop && (
+        <button
+          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+          className="fixed bottom-6 right-6 z-50 w-11 h-11 flex items-center justify-center rounded-full shadow-lg transition-all duration-300"
+          style={{ background: '#1a2e1a', border: '1px solid rgba(201,168,76,0.4)' }}
+          aria-label="Back to top">
+          <svg className="w-5 h-5" style={{ color: '#c9a84c' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7"/>
+          </svg>
+        </button>
       )}
     </div>
   )

@@ -28,9 +28,13 @@ export default async function HomePage() {
       {/* ── HERO ──────────────────────────────────────────────────────── */}
       <section className="relative min-h-screen flex items-center" style={{ background: '#1a2e1a' }}>
         {/* Background image */}
-        {photoUrl && (
-          <Image src={photoUrl} alt="Bluff Haven Retreat" fill className="object-cover opacity-40" priority />
-        )}
+        <Image
+          src={photoUrl ?? '/hero.jpg'}
+          alt="Bluff Haven Retreat"
+          fill
+          className="object-cover opacity-40"
+          priority
+        />
         {/* Gradient overlays */}
         <div className="absolute inset-0" style={{ background: 'linear-gradient(135deg, rgba(26,46,26,0.95) 0%, rgba(26,46,26,0.6) 50%, rgba(26,46,26,0.85) 100%)' }} />
         {/* Decorative corner lines */}
@@ -117,7 +121,7 @@ export default async function HomePage() {
               '🍳 Full Kitchen',
               '📶 High-Speed WiFi',
               '🕹️ Arcade Games',
-              '🔥 Fire Pit',
+              '🪵 Fire Pit',
               '🚗 Free Parking',
             ].map(item => (
               <span key={item} className="text-sm font-light tracking-wide" style={{ color: 'rgba(232,200,122,0.85)' }}>
@@ -146,15 +150,15 @@ export default async function HomePage() {
               <div key={a.label}
                 className="group p-6 rounded-sm border transition-all duration-300 hover:shadow-lg"
                 style={{
-                  background: i % 3 === 0 ? '#1a2e1a' : '#fff',
-                  borderColor: i % 3 === 0 ? 'transparent' : 'rgba(139,111,71,0.15)',
+                  background: i === 0 || i === 4 ? '#1a2e1a' : '#fff',
+                  borderColor: i === 0 || i === 4 ? 'transparent' : 'rgba(139,111,71,0.15)',
                 }}>
                 <svg className="w-6 h-6 mb-4 transition-colors duration-300"
-                  style={{ color: i % 3 === 0 ? '#c9a84c' : '#4a6741' }}
+                  style={{ color: i === 0 || i === 4 ? '#c9a84c' : '#4a6741' }}
                   fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}
                   dangerouslySetInnerHTML={{ __html: a.svg }} />
                 <span className="text-sm font-medium block"
-                  style={{ color: i % 3 === 0 ? '#e8c87a' : '#1a2e1a' }}>
+                  style={{ color: i === 0 || i === 4 ? '#e8c87a' : '#1a2e1a' }}>
                   {a.label}
                 </span>
               </div>
@@ -192,7 +196,8 @@ export default async function HomePage() {
             <div className="absolute -top-4 -right-4 w-full h-full border rounded-sm opacity-20" style={{ borderColor: '#c9a84c' }} />
             <div className="relative rounded-sm overflow-hidden" style={{ background: '#000' }}>
               {/* 16:9 responsive wrapper */}
-              <div style={{ position: 'relative', paddingBottom: '56.25%', height: 0 }}>
+              <div style={{ position: 'relative', paddingBottom: '56.25%', height: 0, maxHeight: '320px' }}
+                className="sm:max-h-none">
                 <iframe
                   src="https://www.youtube.com/embed/T_92xHDEZUA?rel=0&modestbranding=1&color=white"
                   title="Bluff Haven Retreat — Walkthrough & Drone Tour"
@@ -329,7 +334,7 @@ export default async function HomePage() {
                       </svg>
                     ))}
                   </div>
-                  <p className="text-sm leading-relaxed flex-1 font-light" style={{ color: '#4a3728' }}>
+                  <p className="text-sm leading-relaxed font-light" style={{ color: '#4a3728', display: '-webkit-box', WebkitLineClamp: 4, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                     &ldquo;{review.text}&rdquo;
                   </p>
                   <div className="flex items-center justify-between pt-3 border-t" style={{ borderColor: 'rgba(139,111,71,0.1)' }}>
@@ -354,9 +359,16 @@ export default async function HomePage() {
             </div>
 
             {reviews.length > 6 && (
-              <p className="text-center mt-8 text-sm font-light" style={{ color: '#6b5a3e' }}>
-                + {reviews.length - 6} more glowing reviews
-              </p>
+              <div className="text-center mt-10">
+                <Link href="/reviews"
+                  className="inline-flex items-center gap-2 text-sm font-medium uppercase tracking-widest transition-all duration-300 px-8 py-3 rounded-sm border"
+                  style={{ borderColor: 'rgba(139,111,71,0.3)', color: '#4a6741' }}>
+                  See all {reviews.length} reviews
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3"/>
+                  </svg>
+                </Link>
+              </div>
             )}
           </div>
         </section>
@@ -387,6 +399,12 @@ export default async function HomePage() {
           <p className="mt-6 text-xs uppercase tracking-widest font-light" style={{ color: 'rgba(201,168,76,0.5)' }}>
             Best rate guaranteed · Direct booking
           </p>
+          <p className="mt-4 text-sm font-light" style={{ color: 'rgba(255,255,255,0.35)' }}>
+            Have questions?{' '}
+            <Link href="/contact" className="underline underline-offset-2 hover:opacity-80 transition-opacity" style={{ color: 'rgba(201,168,76,0.6)' }}>
+              Contact us →
+            </Link>
+          </p>
           <div className="mt-8 flex items-center justify-center gap-6">
             <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.25)' }}>Also find us on</span>
             <a href="https://www.airbnb.com/h/bluff-haven-retreat" target="_blank" rel="noopener noreferrer"
@@ -416,10 +434,14 @@ export default async function HomePage() {
               Bluff Haven Retreat
             </span>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center gap-4 justify-center sm:justify-end">
             <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.3)' }}>
               Sevierville, Tennessee
             </p>
+            <span style={{ color: 'rgba(255,255,255,0.15)' }}>·</span>
+            <Link href="/reviews" className="text-xs font-light transition-opacity hover:opacity-100" style={{ color: 'rgba(255,255,255,0.3)' }}>Reviews</Link>
+            <span style={{ color: 'rgba(255,255,255,0.15)' }}>·</span>
+            <Link href="/contact" className="text-xs font-light transition-opacity hover:opacity-100" style={{ color: 'rgba(255,255,255,0.3)' }}>Contact</Link>
             <span style={{ color: 'rgba(255,255,255,0.15)' }}>·</span>
             <a href="https://www.airbnb.com/h/bluff-haven-retreat" target="_blank" rel="noopener noreferrer"
               className="text-xs font-light transition-opacity hover:opacity-100"

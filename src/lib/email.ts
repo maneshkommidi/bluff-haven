@@ -100,3 +100,13 @@ export async function sendBookingConfirmation(params: BookingConfirmationParams)
     `,
   })
 }
+
+// Generic email sender for contact form and other uses
+export async function sendEmail({ to, subject, html }: { to: string; subject: string; html: string }) {
+  await resend.emails.send({
+    from: process.env.EMAIL_FROM ?? 'Bluff Haven Retreat <noreply@bluffhavenretreat.com>',
+    to,
+    subject,
+    html,
+  })
+}
