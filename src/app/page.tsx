@@ -251,6 +251,11 @@ export default async function HomePage() {
               Perfectly Positioned
             </h2>
             <p className="font-light" style={{ color: '#6b5a3e' }}>Adventure nearby. Solitude at home.</p>
+          <Link href="/things-to-do"
+            className="inline-flex items-center gap-1 text-sm font-medium mt-3 transition-colors hover:opacity-80"
+            style={{ color: '#4a6741' }}>
+            Browse our full local guide →
+          </Link>
           </div>
           <div className="grid sm:grid-cols-3 gap-6">
             {[
