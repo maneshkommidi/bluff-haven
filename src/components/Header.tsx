@@ -55,6 +55,12 @@ export default function Header() {
           <a href="/#location" className="text-white/70 text-sm tracking-wide hover:text-[#c9a84c] transition-colors font-light">
             Location
           </a>
+          <a href="/gallery" className="text-white/70 text-sm tracking-wide hover:text-[#c9a84c] transition-colors font-light">
+            Gallery
+          </a>
+          <a href="/#reviews" className="text-white/70 text-sm tracking-wide hover:text-[#c9a84c] transition-colors font-light">
+            Reviews
+          </a>
           <div className="flex items-center gap-1 border border-white/10 rounded-sm px-3 py-1.5">
             <a href="https://www.airbnb.com/h/bluff-haven-retreat" target="_blank" rel="noopener noreferrer"
               className="text-white/50 text-xs tracking-wide hover:text-[#c9a84c] transition-colors font-light px-2">
@@ -92,7 +98,7 @@ export default function Header() {
       {/* Mobile menu */}
       {mobileOpen && (
         <div className="sm:hidden bg-[#1a2e1a]/98 border-t border-[#c9a84c]/20 px-6 py-5 space-y-4">
-          {[['/#amenities','Amenities'],['/#about','About'],['/#location','Location']].map(([href, label]) => (
+          {[['/#amenities','Amenities'],['/#about','About'],['/#location','Location'],['/gallery','Gallery'],['/#reviews','Reviews']].map(([href, label]) => (
             <a key={href} href={href} onClick={() => setMobileOpen(false)}
               className="block text-white/70 text-sm tracking-widest uppercase hover:text-[#c9a84c] transition-colors py-1">
               {label}

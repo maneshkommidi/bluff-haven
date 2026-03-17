@@ -8,6 +8,9 @@ export default async function HomePage() {
 
   const photoUrl = property?.photos?.[0]?.url ?? null
 
+  // Reviews loaded from static file
+  const { reviews } = await import('@/lib/reviews')
+
   const amenities = [
     { svg: '<path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>', label: '2 Bedrooms' },
     { svg: '<path d="M5 12H3l9-9 9 9h-2M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7"/><path d="M10 12v5h4v-5"/>', label: '1.5 Bathrooms' },
@@ -184,22 +187,30 @@ export default async function HomePage() {
             </Link>
           </div>
 
-          {/* Image with decorative frame */}
+          {/* Video with decorative frame */}
           <div className="relative">
             <div className="absolute -top-4 -right-4 w-full h-full border rounded-sm opacity-20" style={{ borderColor: '#c9a84c' }} />
-            <div className="relative rounded-sm overflow-hidden" style={{ aspectRatio: '4/5', background: '#2d4a2d' }}>
-              {photoUrl ? (
-                <Image src={photoUrl} alt="Bluff Haven Retreat" fill className="object-cover" />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center">
-                  <svg className="w-16 h-16 opacity-20" style={{ color: '#c9a84c' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
-                  </svg>
-                </div>
-              )}
+            <div className="relative rounded-sm overflow-hidden" style={{ background: '#000' }}>
+              {/* 16:9 responsive wrapper */}
+              <div style={{ position: 'relative', paddingBottom: '56.25%', height: 0 }}>
+                <iframe
+                  src="https://www.youtube.com/embed/T_92xHDEZUA?rel=0&modestbranding=1&color=white"
+                  title="Bluff Haven Retreat — Walkthrough & Drone Tour"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                  style={{
+                    position: 'absolute',
+                    top: 0, left: 0,
+                    width: '100%',
+                    height: '100%',
+                    border: 'none',
+                  }}
+                />
+              </div>
               {/* Gold badge overlay */}
-              <div className="absolute bottom-6 left-6 px-4 py-2 rounded-sm" style={{ background: 'rgba(26,46,26,0.9)', border: '1px solid rgba(201,168,76,0.4)' }}>
-                <span className="text-xs uppercase tracking-widest font-light" style={{ color: '#c9a84c' }}>Check-in 4 PM · Check-out 10 AM</span>
+              <div className="px-4 py-2 flex items-center justify-between" style={{ background: 'rgba(26,46,26,0.95)', borderTop: '1px solid rgba(201,168,76,0.2)' }}>
+                <span className="text-xs uppercase tracking-widest font-light" style={{ color: '#c9a84c' }}>Walkthrough &amp; Drone Tour</span>
+                <span className="text-xs uppercase tracking-widest font-light" style={{ color: 'rgba(201,168,76,0.5)' }}>Check-in 4 PM · Check-out 10 AM</span>
               </div>
             </div>
           </div>
@@ -235,6 +246,27 @@ export default async function HomePage() {
         </div>
       </section>
 
+      {/* ── GALLERY TEASER ────────────────────────────────────────────── */}
+      <section style={{ background: '#1a2e1a' }}>
+        <div className="max-w-6xl mx-auto px-6 py-16 text-center">
+          <span className="gold-divider mx-auto mb-6 block" />
+          <h2 className="font-display text-3xl font-semibold text-white mb-3">
+            See Every Corner
+          </h2>
+          <p className="font-light mb-8 text-sm" style={{ color: 'rgba(255,255,255,0.5)' }}>
+            Browse all photos of Bluff Haven Retreat before you book.
+          </p>
+          <a href="/gallery"
+            className="inline-flex items-center gap-2 border text-sm font-medium px-6 py-3 rounded-sm tracking-widest uppercase transition-all duration-300 hover:bg-[#c9a84c] hover:text-[#1a2e1a] hover:border-[#c9a84c]"
+            style={{ borderColor: 'rgba(201,168,76,0.5)', color: '#c9a84c' }}>
+            View Full Gallery
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3"/>
+            </svg>
+          </a>
+        </div>
+      </section>
+
       {/* ── WHY BOOK DIRECT ───────────────────────────────────────────── */}
       <section style={{ background: '#2d4a2d' }}>
         <div className="max-w-6xl mx-auto px-6 py-20">
@@ -263,6 +295,73 @@ export default async function HomePage() {
         </div>
       </section>
 
+         {/* ── GUEST REVIEWS ─────────────────────────────────────────────── */}
+      {reviews.length > 0 && (
+        <section id="reviews" className="scroll-mt-20" style={{ background: '#faf7f2' }}>
+          <div className="max-w-6xl mx-auto px-6 py-24">
+            <div className="text-center mb-14">
+              <span className="gold-divider mx-auto mb-6 block" />
+              <h2 className="font-display text-4xl font-semibold mb-3" style={{ color: '#1a2e1a' }}>
+                What Our Guests Say
+              </h2>
+              <div className="flex items-center justify-center gap-2 mb-2">
+                {[1,2,3,4,5].map(s => (
+                  <svg key={s} className="w-5 h-5" style={{ color: '#c9a84c' }} fill="currentColor" viewBox="0 0 20 20">
+                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+                  </svg>
+                ))}
+              </div>
+              <p className="font-light text-sm" style={{ color: '#6b5a3e' }}>
+                {reviews.length} verified guest review{reviews.length !== 1 ? 's' : ''}
+              </p>
+            </div>
+
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              {reviews.slice(0, 6).map((review: any) => (
+                <div key={review.id}
+                  className="p-7 rounded-sm border flex flex-col gap-4"
+                  style={{ background: '#fff', borderColor: 'rgba(139,111,71,0.15)' }}>
+                  <div className="flex items-center gap-1">
+                    {[1,2,3,4,5].map(s => (
+                      <svg key={s} className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"
+                        style={{ color: s <= (review.rating ?? 5) ? '#c9a84c' : '#e5e7eb' }}>
+                        <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+                      </svg>
+                    ))}
+                  </div>
+                  <p className="text-sm leading-relaxed flex-1 font-light" style={{ color: '#4a3728' }}>
+                    &ldquo;{review.text}&rdquo;
+                  </p>
+                  <div className="flex items-center justify-between pt-3 border-t" style={{ borderColor: 'rgba(139,111,71,0.1)' }}>
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold text-white"
+                        style={{ background: '#2d4a2d' }}>
+                        {review.guestName?.charAt(0)?.toUpperCase() ?? 'G'}
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium" style={{ color: '#1a2e1a' }}>{review.guestName}</p>
+                        <p className="text-[10px] font-light" style={{ color: '#9b8b7a' }}>{review.source}</p>
+                      </div>
+                    </div>
+                    {review.date && (
+                      <span className="text-[10px] font-light" style={{ color: '#9b8b7a' }}>
+                        {new Date(review.date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {reviews.length > 6 && (
+              <p className="text-center mt-8 text-sm font-light" style={{ color: '#6b5a3e' }}>
+                + {reviews.length - 6} more glowing reviews
+              </p>
+            )}
+          </div>
+        </section>
+      )}
+
       {/* ── CTA FOOTER ────────────────────────────────────────────────── */}
       <section style={{ background: '#1a2e1a', position: 'relative', overflow: 'hidden' }}>
         {/* Decorative circle */}
@@ -288,6 +387,20 @@ export default async function HomePage() {
           <p className="mt-6 text-xs uppercase tracking-widest font-light" style={{ color: 'rgba(201,168,76,0.5)' }}>
             Best rate guaranteed · Direct booking
           </p>
+          <div className="mt-8 flex items-center justify-center gap-6">
+            <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.25)' }}>Also find us on</span>
+            <a href="https://www.airbnb.com/h/bluff-haven-retreat" target="_blank" rel="noopener noreferrer"
+              className="text-xs font-light tracking-wide transition-colors hover:opacity-100"
+              style={{ color: 'rgba(255,255,255,0.4)' }}>
+              Airbnb
+            </a>
+            <span style={{ color: 'rgba(255,255,255,0.15)' }}>·</span>
+            <a href="https://www.vrbo.com/4657328?dateless=true" target="_blank" rel="noopener noreferrer"
+              className="text-xs font-light tracking-wide transition-colors hover:opacity-100"
+              style={{ color: 'rgba(255,255,255,0.4)' }}>
+              VRBO
+            </a>
+          </div>
         </div>
       </section>
 
@@ -303,9 +416,23 @@ export default async function HomePage() {
               Bluff Haven Retreat
             </span>
           </div>
-          <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.3)' }}>
-            Sevierville, Tennessee · Direct Booking
-          </p>
+          <div className="flex items-center gap-4">
+            <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.3)' }}>
+              Sevierville, Tennessee
+            </p>
+            <span style={{ color: 'rgba(255,255,255,0.15)' }}>·</span>
+            <a href="https://www.airbnb.com/h/bluff-haven-retreat" target="_blank" rel="noopener noreferrer"
+              className="text-xs font-light transition-opacity hover:opacity-100"
+              style={{ color: 'rgba(255,255,255,0.3)' }}>
+              Airbnb
+            </a>
+            <span style={{ color: 'rgba(255,255,255,0.15)' }}>·</span>
+            <a href="https://www.vrbo.com/4657328?dateless=true" target="_blank" rel="noopener noreferrer"
+              className="text-xs font-light transition-opacity hover:opacity-100"
+              style={{ color: 'rgba(255,255,255,0.3)' }}>
+              VRBO
+            </a>
+          </div>
         </div>
       </footer>
     </div>

@@ -213,13 +213,53 @@ export async function getQuote(
 
 // ─── Property ─────────────────────────────────────────────────────────────────
 
+export async function getPropertyPhotos(): Promise<PropertyPhoto[]> {
+  const { propertyId } = getConfig()
+
+  // Try the dedicated photos endpoint first (requires WP + Integrated Sites feature)
+  try {
+    const data = await orFetch<any>(`${BASE_V2}/properties/${propertyId}/photos`)
+    const items: any[] = data?.items ?? data ?? []
+    if (Array.isArray(items) && items.length > 0) {
+      return items.map((p: any, i: number) => ({
+        id:      p.id      ?? i,
+        url:     p.url     ?? p.large_url ?? p.original_url ?? p.medium_url ?? '',
+        caption: p.caption ?? p.name ?? '',
+        sort_order: p.sort_order ?? i,
+      })).filter(p => p.url).sort((a, b) => a.sort_order - b.sort_order)
+    }
+  } catch {}
+
+  // Fallback: try listing photos endpoint
+  try {
+    const data = await orFetch<any>(`${BASE_V2}/listings/${propertyId}/photos`)
+    const items: any[] = data?.items ?? data ?? []
+    if (Array.isArray(items) && items.length > 0) {
+      return items.map((p: any, i: number) => ({
+        id:      p.id      ?? i,
+        url:     p.url     ?? p.large_url ?? p.original_url ?? '',
+        caption: p.caption ?? '',
+        sort_order: p.sort_order ?? i,
+      })).filter(p => p.url).sort((a, b) => a.sort_order - b.sort_order)
+    }
+  } catch {}
+
+  // Final fallback: pull from property details thumbnail
+  try {
+    const p = await orFetch<any>(`${BASE_V2}/properties/${propertyId}`)
+    const url = p.thumbnail_url_large ?? p.thumbnail_url_medium ?? p.thumbnail_url ?? null
+    if (url) return [{ id: 1, url, caption: p.name ?? 'Bluff Haven Retreat', sort_order: 0 }]
+  } catch {}
+
+  return []
+}
+
 export async function getFullPropertyDetails(): Promise<PropertyDetails> {
   const { propertyId } = getConfig()
-  const p = await orFetch<any>(`${BASE_V2}/properties/${propertyId}`)
-
-  const photos: PropertyPhoto[] = []
-  const photoUrl = p.thumbnail_url_large ?? p.thumbnail_url_medium ?? p.thumbnail_url ?? null
-  if (photoUrl) photos.push({ id: 1, url: photoUrl, caption: p.name })
+  const [p, photos] = await Promise.all([
+    orFetch<any>(`${BASE_V2}/properties/${propertyId}`),
+    getPropertyPhotos(),
+  ])
 
   return {
     id:          p.id,
