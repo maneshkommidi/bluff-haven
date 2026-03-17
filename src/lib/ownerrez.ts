@@ -93,9 +93,10 @@ export interface RateQuote {
 }
 
 export interface PropertyPhoto {
-  id:      number
-  url:     string
-  caption?: string
+  id:          number
+  url:         string
+  caption?:    string
+  sort_order?: number
 }
 
 export interface PropertyDetails {
