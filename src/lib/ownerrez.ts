@@ -81,6 +81,7 @@ export interface AvailabilityDay {
   date:      string
   available: boolean
   minNights: number
+  rate:      number  // nightly rate from OwnerRez pricing
 }
 
 export interface RateQuote {
@@ -153,9 +154,9 @@ export async function getAvailabilityWithPricing(
   }
 
   // Build minNights map
-  const minNightsMap = new Map<string, number>(
-    (Array.isArray(pricingData) ? pricingData : []).map(p => [p.date, p.minNights ?? 1])
-  )
+  const pricing = Array.isArray(pricingData) ? pricingData as any[] : []
+  const minNightsMap = new Map<string, number>(pricing.map(p => [p.date, p.minNights ?? 1]))
+  const rateMap      = new Map<string, number>(pricing.map(p => [p.date, p.amount ?? 0]))
 
   // Generate full day-by-day result
   const result: AvailabilityDay[] = []
@@ -167,6 +168,7 @@ export async function getAvailabilityWithPricing(
       date:      dateStr,
       available: !blockedDates.has(dateStr),
       minNights: minNightsMap.get(dateStr) ?? 1,
+      rate:      rateMap.get(dateStr) ?? 0,
     })
     cursor.setDate(cursor.getDate() + 1)
   }

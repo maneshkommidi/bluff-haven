@@ -11,6 +11,7 @@ interface AvailabilityData {
   blockedDates: Set<string>
   checkoutOnlyDates: Set<string>
   minNightsMap: Map<string, number>
+  rateMap: Map<string, number>
 }
 
 function toDateStr(d: Date): string {
@@ -32,7 +33,7 @@ function BookPageInner() {
 
   const [range, setRange]               = useState<DateRange | undefined>()
   const [availability, setAvailability] = useState<AvailabilityData>({
-    blockedDates: new Set(), checkoutOnlyDates: new Set(), minNightsMap: new Map(),
+    blockedDates: new Set(), checkoutOnlyDates: new Set(), minNightsMap: new Map(), rateMap: new Map(),
   })
   const [availabilityLoaded, setAvailabilityLoaded] = useState(false)
   const [availabilityError, setAvailabilityError]   = useState<string | null>(null)
@@ -50,12 +51,14 @@ function BookPageInner() {
   useEffect(() => {
     fetch('/api/availability')
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
-      .then((days: { date: string; available: boolean; minNights?: number }[]) => {
+      .then((days: { date: string; available: boolean; minNights?: number; rate?: number }[]) => {
         const blockedSet   = new Set(days.filter(d => !d.available).map(d => d.date))
         const checkoutOnly = new Set<string>()
         const minNightsMap = new Map<string, number>()
+        const rateMap = new Map<string, number>()
         for (const d of days) {
           if (d.minNights && d.minNights > 1) minNightsMap.set(d.date, d.minNights)
+          if (d.rate && d.rate > 0) rateMap.set(d.date, d.rate)
           if (!d.available) {
             const [y, m, day] = d.date.split('-').map(Number)
             const prev = new Date(y, m - 1, day - 1)
@@ -63,7 +66,7 @@ function BookPageInner() {
           }
         }
         checkoutOnly.forEach(d => blockedSet.delete(d))
-        setAvailability({ blockedDates: blockedSet, checkoutOnlyDates: checkoutOnly, minNightsMap })
+        setAvailability({ blockedDates: blockedSet, checkoutOnlyDates: checkoutOnly, minNightsMap, rateMap })
         setAvailabilityLoaded(true)
       })
       .catch(() => {
@@ -115,6 +118,29 @@ function BookPageInner() {
 
     return () => { document.getElementById('or-widget-script')?.remove() }
   }, [hasOrParams, orArrival, orDeparture])
+
+
+  // Inject nightly rate labels into calendar day buttons after render
+  useEffect(() => {
+    if (availability.rateMap.size === 0) return
+    const timer = setTimeout(() => {
+      // react-day-picker renders buttons with aria-label like "April 20, 2026"
+      document.querySelectorAll('.rdp-button[name]').forEach((btn: any) => {
+        const name = btn.getAttribute('name') // format: "2026-04-20"
+        if (!name) return
+        const rate = availability.rateMap.get(name)
+        // Remove old label
+        btn.querySelector('.or-rate-label')?.remove()
+        if (rate && rate > 0) {
+          const span = document.createElement('span')
+          span.className = 'or-rate-label'
+          span.textContent = '$' + Math.round(rate)
+          btn.appendChild(span)
+        }
+      })
+    }, 50)
+    return () => clearTimeout(timer)
+  }, [availability.rateMap, range])
 
   const isDateDisabled = useCallback((date: Date): boolean => {
     const today = startOfDay(new Date())
@@ -208,6 +234,29 @@ function BookPageInner() {
           z-index: 30; pointer-events: none;
         }
         .rdp-day_tooFewNights { position: relative; }
+        /* Nightly rate label below date number */
+        .or-rate-label {
+          display: block;
+          font-size: 8px;
+          font-weight: 600;
+          color: #4a6741;
+          text-align: center;
+          line-height: 1;
+          margin-top: 1px;
+          pointer-events: none;
+        }
+        .rdp-day_selected .or-rate-label,
+        .rdp-day_range_start .or-rate-label,
+        .rdp-day_range_end .or-rate-label,
+        .rdp-day_range_middle .or-rate-label {
+          color: rgba(255,255,255,0.75);
+        }
+        .rdp-day_disabled .or-rate-label {
+          display: none;
+        }
+        .rdp-button { height: auto !important; min-height: 40px; padding: 4px 0 !important; }
+        .rdp-day { height: auto !important; }
+        .rdp-cell { height: auto !important; }
         .rdp-day_tooFewNights:hover::after {
           content: 'Min stay not met'; position: absolute; bottom: 110%; left: 50%;
           transform: translateX(-50%); background: #1c1917; color: white;
@@ -271,6 +320,28 @@ function BookPageInner() {
                       range_end:    { backgroundColor: '#292524', color: 'white', borderRadius: '0 100% 100% 0' },
                       range_middle: { backgroundColor: '#f5f4f3', color: '#292524', borderRadius: 0 },
                       today:        { fontWeight: '700' },
+                    }}
+                    components={{
+                      DayContent: ({ date, activeModifiers }: any) => {
+                        const dateStr = toDateStr(date)
+                        const rate    = availability.rateMap.get(dateStr)
+                        const isDisabled = activeModifiers.disabled || activeModifiers.outside
+                        const isSelected = activeModifiers.selected || activeModifiers.range_start || activeModifiers.range_end || activeModifiers.range_middle
+                        return (
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1px', padding: '1px 0', lineHeight: 1 }}>
+                            <span style={{ fontSize: '13px' }}>{date.getDate()}</span>
+                            {rate && rate > 0 && !isDisabled && (
+                              <span style={{
+                                fontSize: '8px',
+                                fontWeight: 600,
+                                color: isSelected ? 'rgba(255,255,255,0.75)' : '#4a6741',
+                              }}>
+                                ${Math.round(rate)}
+                              </span>
+                            )}
+                          </div>
+                        )
+                      }
                     }}
                   />
                   {range?.from && (
@@ -374,6 +445,31 @@ function BookPageInner() {
                       <span className="font-medium text-stone-800">{hasOrParams ? displayNights : nights}</span>
                     </div>
                   </div>
+
+                  {/* Rate + cleaning fee estimate */}
+                  {!hasOrParams && range?.from && range?.to && nights > 0 && (() => {
+                    const arrStr = format(range.from, 'yyyy-MM-dd')
+                    const nightly = availability.rateMap.get(arrStr) ?? 0
+                    const cleaningFee = 175
+                    const rentTotal = nightly * nights
+                    return nightly > 0 ? (
+                      <div className="mt-3 pt-3 border-t border-stone-100 space-y-1.5 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-stone-500">${Math.round(nightly)} &times; {nights} night{nights !== 1 ? 's' : ''}</span>
+                          <span className="font-medium text-stone-800">${rentTotal.toFixed(0)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-stone-500">Cleaning fee</span>
+                          <span className="font-medium text-stone-800">${cleaningFee}</span>
+                        </div>
+                        <div className="flex justify-between pt-1.5 border-t border-stone-100">
+                          <span className="text-stone-500 font-medium">Subtotal</span>
+                          <span className="font-semibold text-stone-800">${(rentTotal + cleaningFee).toFixed(0)}</span>
+                        </div>
+                        <p className="text-[10px] text-stone-400">+ taxes · exact total shown at checkout</p>
+                      </div>
+                    ) : null
+                  })()}
                 </div>
               )}
 
