@@ -7,11 +7,19 @@ import { format, startOfDay } from 'date-fns'
 import { useSearchParams } from 'next/navigation'
 import { Suspense } from 'react'
 
+interface Quote {
+  total:     number
+  base_rent: number
+  nights:    number
+  fees:      { name: string; amount: number }[]
+  taxes:     { name: string; amount: number }[]
+}
+
 interface AvailabilityData {
-  blockedDates: Set<string>
+  blockedDates:     Set<string>
   checkoutOnlyDates: Set<string>
-  minNightsMap: Map<string, number>
-  rateMap: Map<string, number>
+  minNightsMap:     Map<string, number>
+  rateMap:          Map<string, number>
 }
 
 function toDateStr(d: Date): string {
@@ -20,24 +28,25 @@ function toDateStr(d: Date): string {
     String(d.getDate()).padStart(2, '0')
 }
 
-const OR_PROPERTY_ID  = '8dff8078067343349a22031a4afc719e'
-const OR_WIDGET_ID    = '6aafaaafd1c941dbacf4b9990f9681ef'
+const OR_PROPERTY_ID = '8dff8078067343349a22031a4afc719e'
+const OR_WIDGET_ID   = '6aafaaafd1c941dbacf4b9990f9681ef'
 
 function BookPageInner() {
   const searchParams = useSearchParams()
   const orArrival    = searchParams.get('or_arrival')   ?? ''
   const orDeparture  = searchParams.get('or_departure') ?? ''
-
-  // If URL has or_arrival/or_departure, we're in widget mode
   const hasOrParams  = !!(orArrival && orDeparture)
 
   const [range, setRange]               = useState<DateRange | undefined>()
   const [availability, setAvailability] = useState<AvailabilityData>({
-    blockedDates: new Set(), checkoutOnlyDates: new Set(), minNightsMap: new Map(), rateMap: new Map(),
+    blockedDates: new Set(), checkoutOnlyDates: new Set(),
+    minNightsMap: new Map(), rateMap: new Map(),
   })
   const [availabilityLoaded, setAvailabilityLoaded] = useState(false)
   const [availabilityError, setAvailabilityError]   = useState<string | null>(null)
-  const [isMobile, setIsMobile] = useState(false)
+  const [isMobile, setIsMobile]         = useState(false)
+  const [quote, setQuote]               = useState<Quote | null>(null)
+  const [loadingQuote, setLoadingQuote] = useState(false)
   const widgetContainerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -47,7 +56,7 @@ function BookPageInner() {
     return () => window.removeEventListener('resize', check)
   }, [])
 
-  // Load availability
+  // Load availability + pricing (rates)
   useEffect(() => {
     fetch('/api/availability')
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
@@ -55,7 +64,7 @@ function BookPageInner() {
         const blockedSet   = new Set(days.filter(d => !d.available).map(d => d.date))
         const checkoutOnly = new Set<string>()
         const minNightsMap = new Map<string, number>()
-        const rateMap = new Map<string, number>()
+        const rateMap      = new Map<string, number>()
         for (const d of days) {
           if (d.minNights && d.minNights > 1) minNightsMap.set(d.date, d.minNights)
           if (d.rate && d.rate > 0) rateMap.set(d.date, d.rate)
@@ -75,27 +84,53 @@ function BookPageInner() {
       })
   }, [])
 
-  // Inject widget.js when OR params are present — script reads or_arrival/or_departure from URL
+  // Fetch quote for Airbnb-style price breakdown in sidebar
+  useEffect(() => {
+    if (!range?.from || !range?.to) { setQuote(null); return }
+    setLoadingQuote(true)
+    const arrival   = format(range.from, 'yyyy-MM-dd')
+    const departure = format(range.to,   'yyyy-MM-dd')
+    fetch(`/api/quote?arrival=${arrival}&departure=${departure}&adults=2&children=0`)
+      .then(r => r.json())
+      .then(d => { if (!d.error) setQuote(d) })
+      .catch(() => {})
+      .finally(() => setLoadingQuote(false))
+  }, [range])
+
+  // Inject rate labels into calendar day buttons after render
+  useEffect(() => {
+    if (availability.rateMap.size === 0) return
+    const timer = setTimeout(() => {
+      document.querySelectorAll<HTMLElement>('.rdp-button[name]').forEach(btn => {
+        const name = btn.getAttribute('name')
+        if (!name) return
+        btn.querySelector('.or-rate-label')?.remove()
+        const rate = availability.rateMap.get(name)
+        if (rate && rate > 0) {
+          const span = document.createElement('span')
+          span.className = 'or-rate-label'
+          span.textContent = '$' + Math.round(rate)
+          btn.appendChild(span)
+        }
+      })
+    }, 80)
+    return () => clearTimeout(timer)
+  }, [availability.rateMap, range])
+
+  // Inject OwnerRez widget when OR params present
   useEffect(() => {
     if (!hasOrParams || !widgetContainerRef.current) return
-
     const container = widgetContainerRef.current
     container.innerHTML = ''
-
-    // Create widget div
     const widgetDiv = document.createElement('div')
     widgetDiv.className = 'ownerrez-widget'
     widgetDiv.setAttribute('data-propertyid', OR_PROPERTY_ID)
     widgetDiv.setAttribute('data-widget-type', 'Booking/Inquiry')
     widgetDiv.setAttribute('data-widgetid', OR_WIDGET_ID)
     container.appendChild(widgetDiv)
-
-    // Remove old script + globals
     document.getElementById('or-widget-script')?.remove()
     try { delete (window as any).OwnerRezWidgets } catch {}
     try { delete (window as any).OwnerRez } catch {}
-
-    // Inject fresh script — it reads or_arrival/or_departure from window.location
     const script = document.createElement('script')
     script.id    = 'or-widget-script'
     script.src   = 'https://app.ownerrez.com/widget.js'
@@ -112,35 +147,9 @@ function BookPageInner() {
       }, 100)
     }
     document.body.appendChild(script)
-
-    // Scroll to widget
     setTimeout(() => container.scrollIntoView({ behavior: 'smooth', block: 'start' }), 300)
-
     return () => { document.getElementById('or-widget-script')?.remove() }
   }, [hasOrParams, orArrival, orDeparture])
-
-
-  // Inject nightly rate labels into calendar day buttons after render
-  useEffect(() => {
-    if (availability.rateMap.size === 0) return
-    const timer = setTimeout(() => {
-      // react-day-picker renders buttons with aria-label like "April 20, 2026"
-      document.querySelectorAll('.rdp-button[name]').forEach((btn: any) => {
-        const name = btn.getAttribute('name') // format: "2026-04-20"
-        if (!name) return
-        const rate = availability.rateMap.get(name)
-        // Remove old label
-        btn.querySelector('.or-rate-label')?.remove()
-        if (rate && rate > 0) {
-          const span = document.createElement('span')
-          span.className = 'or-rate-label'
-          span.textContent = '$' + Math.round(rate)
-          btn.appendChild(span)
-        }
-      })
-    }, 50)
-    return () => clearTimeout(timer)
-  }, [availability.rateMap, range])
 
   const isDateDisabled = useCallback((date: Date): boolean => {
     const today = startOfDay(new Date())
@@ -192,27 +201,33 @@ function BookPageInner() {
     setRange({ from: newRange.from, to: maxTo })
   }, [availability])
 
-  // When guest clicks Book — navigate to same page with OR params in URL
   const handleBook = useCallback(() => {
     if (!range?.from || !range?.to) return
-    const arrival   = format(range.from, 'yyyy-MM-dd')
-    const departure = format(range.to,   'yyyy-MM-dd')
-    window.location.href = `/book?or_arrival=${arrival}&or_departure=${departure}`
+    window.location.href = `/book?or_arrival=${format(range.from, 'yyyy-MM-dd')}&or_departure=${format(range.to, 'yyyy-MM-dd')}`
   }, [range])
 
-  const nights  = range?.from && range?.to
+  const nights       = range?.from && range?.to
     ? Math.round((range.to.getTime() - range.from.getTime()) / (1000 * 60 * 60 * 24)) : 0
-  const canBook = !!(range?.from && range?.to && nights > 0)
-
-  // Parse OR params back into display dates
+  const canBook      = !!(range?.from && range?.to && nights > 0)
   const displayArrival   = orArrival   ? new Date(orArrival   + 'T00:00:00') : null
   const displayDeparture = orDeparture ? new Date(orDeparture + 'T00:00:00') : null
   const displayNights    = displayArrival && displayDeparture
     ? Math.round((displayDeparture.getTime() - displayArrival.getTime()) / (1000 * 60 * 60 * 24)) : 0
 
+  // Price breakdown helpers
+  const cleaningFee    = quote?.fees.find(f => f.name?.toLowerCase().includes('clean'))
+  const discounts      = quote?.fees.filter(f => f.amount < 0) ?? []
+  const otherFees      = quote?.fees.filter(f => f.amount > 0 && !f.name?.toLowerCase().includes('clean')) ?? []
+  const totalTax       = quote?.taxes.reduce((s, t) => s + t.amount, 0) ?? 0
+  const discountTotal  = discounts.reduce((s, d) => s + d.amount, 0)
+  const baseNightly    = quote && quote.nights > 0 ? quote.base_rent / quote.nights : 0
+  const hasDiscount    = discounts.length > 0
+  const strikePrice    = quote ? Math.round(quote.base_rent - discountTotal + (cleaningFee?.amount ?? 0)) : 0
+
   return (
     <div className="min-h-screen bg-stone-50">
       <style>{`
+        /* Checkout-only diagonal */
         .rdp-day_checkoutOnly { position: relative; }
         .rdp-day_checkoutOnly button, .rdp-day_checkoutOnly .rdp-day_button {
           position: relative !important; cursor: not-allowed !important;
@@ -233,36 +248,28 @@ function BookPageInner() {
           font-size: 11px; white-space: nowrap; padding: 4px 8px; border-radius: 6px;
           z-index: 30; pointer-events: none;
         }
+        /* Min stay tooltip */
         .rdp-day_tooFewNights { position: relative; }
-        /* Nightly rate label below date number */
-        .or-rate-label {
-          display: block;
-          font-size: 8px;
-          font-weight: 600;
-          color: #4a6741;
-          text-align: center;
-          line-height: 1;
-          margin-top: 1px;
-          pointer-events: none;
-        }
-        .rdp-day_selected .or-rate-label,
-        .rdp-day_range_start .or-rate-label,
-        .rdp-day_range_end .or-rate-label,
-        .rdp-day_range_middle .or-rate-label {
-          color: rgba(255,255,255,0.75);
-        }
-        .rdp-day_disabled .or-rate-label {
-          display: none;
-        }
-        .rdp-button { height: auto !important; min-height: 40px; padding: 4px 0 !important; }
-        .rdp-day { height: auto !important; }
-        .rdp-cell { height: auto !important; }
         .rdp-day_tooFewNights:hover::after {
           content: 'Min stay not met'; position: absolute; bottom: 110%; left: 50%;
           transform: translateX(-50%); background: #1c1917; color: white;
           font-size: 11px; white-space: nowrap; padding: 4px 8px; border-radius: 6px;
           z-index: 30; pointer-events: none;
         }
+        /* Nightly rate label */
+        .or-rate-label {
+          display: block; font-size: 8px; font-weight: 700;
+          color: #4a6741; text-align: center; line-height: 1; margin-top: 1px;
+          pointer-events: none;
+        }
+        .rdp-day_selected .or-rate-label,
+        .rdp-day_range_start .or-rate-label,
+        .rdp-day_range_end .or-rate-label,
+        .rdp-day_range_middle .or-rate-label { color: rgba(255,255,255,0.8); }
+        .rdp-day_disabled .or-rate-label { display: none; }
+        .rdp-button { height: auto !important; min-height: 36px; padding: 3px 0 !important; }
+        .rdp-day { height: auto !important; }
+        .rdp-cell { height: auto !important; }
       `}</style>
 
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
@@ -296,7 +303,7 @@ function BookPageInner() {
         <div className="grid md:grid-cols-3 gap-8">
           <div className="md:col-span-2 space-y-5">
 
-            {/* Step 1: Calendar — hidden once dates are confirmed */}
+            {/* Step 1: Calendar */}
             {!hasOrParams && (
               <>
                 <div className="bg-white rounded-2xl border border-stone-100 p-5 sm:p-6">
@@ -321,28 +328,6 @@ function BookPageInner() {
                       range_middle: { backgroundColor: '#f5f4f3', color: '#292524', borderRadius: 0 },
                       today:        { fontWeight: '700' },
                     }}
-                    components={{
-                      DayContent: ({ date, activeModifiers }: any) => {
-                        const dateStr = toDateStr(date)
-                        const rate    = availability.rateMap.get(dateStr)
-                        const isDisabled = activeModifiers.disabled || activeModifiers.outside
-                        const isSelected = activeModifiers.selected || activeModifiers.range_start || activeModifiers.range_end || activeModifiers.range_middle
-                        return (
-                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1px', padding: '1px 0', lineHeight: 1 }}>
-                            <span style={{ fontSize: '13px' }}>{date.getDate()}</span>
-                            {rate && rate > 0 && !isDisabled && (
-                              <span style={{
-                                fontSize: '8px',
-                                fontWeight: 600,
-                                color: isSelected ? 'rgba(255,255,255,0.75)' : '#4a6741',
-                              }}>
-                                ${Math.round(rate)}
-                              </span>
-                            )}
-                          </div>
-                        )
-                      }
-                    }}
                   />
                   {range?.from && (
                     <div className="mt-3 flex items-center justify-between p-3 bg-stone-50 rounded-lg text-sm text-stone-600">
@@ -362,7 +347,7 @@ function BookPageInner() {
                           </span>
                         )}
                       </span>
-                      <button onClick={() => setRange(undefined)} className="text-stone-400 hover:text-stone-700 text-xs underline underline-offset-2 ml-4 flex-shrink-0">
+                      <button onClick={() => { setRange(undefined); setQuote(null) }} className="text-stone-400 hover:text-stone-700 text-xs underline underline-offset-2 ml-4 flex-shrink-0">
                         Clear
                       </button>
                     </div>
@@ -376,15 +361,15 @@ function BookPageInner() {
                 >
                   {!range?.from ? 'Select check-in date' :
                    !range?.to   ? 'Select check-out date' :
+                   loadingQuote  ? 'Calculating...' :
                                   `Book ${nights} night${nights !== 1 ? 's' : ''} \u2192`}
                 </button>
               </>
             )}
 
-            {/* Step 2: OwnerRez widget — shown after redirect with OR params */}
+            {/* Step 2: OwnerRez widget */}
             {hasOrParams && (
               <>
-                {/* Confirmed dates summary */}
                 <div className="bg-white rounded-2xl border border-stone-100 p-5 sm:p-6">
                   <div className="flex items-center justify-between">
                     <h2 className="font-semibold text-stone-800">Your dates</h2>
@@ -402,8 +387,6 @@ function BookPageInner() {
                     </div>
                   )}
                 </div>
-
-                {/* OwnerRez widget — widget.js reads or_arrival/or_departure from page URL */}
                 <div className="bg-white rounded-2xl border border-stone-100 p-5 sm:p-6">
                   <h2 className="font-semibold text-stone-800 mb-1">Guest details &amp; payment</h2>
                   <p className="text-stone-500 text-sm mb-5">Secure checkout &middot; Powered by Stripe</p>
@@ -413,66 +396,108 @@ function BookPageInner() {
             )}
           </div>
 
-          {/* Sidebar */}
+          {/* ── Sidebar ─────────────────────────────────────────────────── */}
           <div className="md:col-span-1">
             <div className="bg-white rounded-2xl border border-stone-100 p-6 sticky top-6 space-y-5">
+
               <div>
                 <h3 className="font-semibold text-stone-800 mb-1">Bluff Haven Retreat</h3>
                 <p className="text-xs text-stone-500">Sevierville, TN &middot; 2 bed &middot; 1.5 bath &middot; 6 guests max</p>
               </div>
 
-              {/* Show selected dates in sidebar */}
+              {/* Airbnb-style price breakdown */}
               {(canBook || hasOrParams) && (
                 <div className="pt-4 border-t border-stone-100">
-                  <p className="text-xs text-stone-400 uppercase tracking-wide mb-2">Your stay</p>
-                  <div className="space-y-1.5 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-stone-500">Check-in</span>
-                      <span className="font-medium text-stone-800">
-                        {hasOrParams && displayArrival   ? format(displayArrival,   'MMM d, yyyy')
-                         : range?.from                   ? format(range.from,        'MMM d, yyyy') : '—'}
-                      </span>
+
+                  {/* Date pills */}
+                  <div className="grid grid-cols-2 gap-2 mb-4">
+                    <div className="border border-stone-200 rounded-lg p-2.5">
+                      <p className="text-[9px] uppercase tracking-widest text-stone-400 font-semibold mb-0.5">Check-in</p>
+                      <p className="text-sm font-semibold text-stone-800">
+                        {hasOrParams && displayArrival ? format(displayArrival, 'M/d/yyyy')
+                         : range?.from ? format(range.from, 'M/d/yyyy') : '—'}
+                      </p>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-stone-500">Check-out</span>
-                      <span className="font-medium text-stone-800">
-                        {hasOrParams && displayDeparture ? format(displayDeparture, 'MMM d, yyyy')
-                         : range?.to                     ? format(range.to,          'MMM d, yyyy') : '—'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-stone-500">Nights</span>
-                      <span className="font-medium text-stone-800">{hasOrParams ? displayNights : nights}</span>
+                    <div className="border border-stone-200 rounded-lg p-2.5">
+                      <p className="text-[9px] uppercase tracking-widest text-stone-400 font-semibold mb-0.5">Checkout</p>
+                      <p className="text-sm font-semibold text-stone-800">
+                        {hasOrParams && displayDeparture ? format(displayDeparture, 'M/d/yyyy')
+                         : range?.to ? format(range.to, 'M/d/yyyy') : '—'}
+                      </p>
                     </div>
                   </div>
 
-                  {/* Rate + cleaning fee estimate */}
-                  {!hasOrParams && range?.from && range?.to && nights > 0 && (() => {
-                    const arrStr = format(range.from, 'yyyy-MM-dd')
-                    const nightly = availability.rateMap.get(arrStr) ?? 0
-                    const cleaningFee = 175
-                    const rentTotal = nightly * nights
-                    return nightly > 0 ? (
-                      <div className="mt-3 pt-3 border-t border-stone-100 space-y-1.5 text-sm">
-                        <div className="flex justify-between">
-                          <span className="text-stone-500">${Math.round(nightly)} &times; {nights} night{nights !== 1 ? 's' : ''}</span>
-                          <span className="font-medium text-stone-800">${rentTotal.toFixed(0)}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-stone-500">Cleaning fee</span>
-                          <span className="font-medium text-stone-800">${cleaningFee}</span>
-                        </div>
-                        <div className="flex justify-between pt-1.5 border-t border-stone-100">
-                          <span className="text-stone-500 font-medium">Subtotal</span>
-                          <span className="font-semibold text-stone-800">${(rentTotal + cleaningFee).toFixed(0)}</span>
-                        </div>
-                        <p className="text-[10px] text-stone-400">+ taxes · exact total shown at checkout</p>
+                  {/* Loading */}
+                  {loadingQuote && (
+                    <p className="text-xs text-stone-400 animate-pulse text-center py-3">Calculating price...</p>
+                  )}
+
+                  {/* Full breakdown */}
+                  {quote && !loadingQuote && (
+                    <div>
+                      {/* Total headline */}
+                      <div className="flex items-baseline gap-2 mb-4">
+                        {hasDiscount && (
+                          <span className="text-stone-400 line-through text-sm">${strikePrice}</span>
+                        )}
+                        <span className="text-2xl font-bold text-stone-900">${Math.round(quote.total)}</span>
+                        <span className="text-stone-500 text-sm">for {quote.nights} night{quote.nights !== 1 ? 's' : ''}</span>
                       </div>
-                    ) : null
-                  })()}
+
+                      <div className="space-y-2.5 text-sm border-t border-stone-100 pt-3">
+                        {/* Base rent */}
+                        <div className="flex justify-between">
+                          <span className="text-stone-600 underline underline-offset-2 decoration-dotted cursor-default">
+                            ${Math.round(baseNightly)} &times; {quote.nights} night{quote.nights !== 1 ? 's' : ''}
+                          </span>
+                          <span className="text-stone-800">${Math.round(quote.base_rent)}</span>
+                        </div>
+
+                        {/* Discounts in green */}
+                        {discounts.map((d, i) => (
+                          <div key={i} className="flex justify-between">
+                            <span className="text-green-700">{d.name}</span>
+                            <span className="text-green-700">&minus;${Math.abs(Math.round(d.amount))}</span>
+                          </div>
+                        ))}
+
+                        {/* Cleaning fee */}
+                        {cleaningFee && (
+                          <div className="flex justify-between">
+                            <span className="text-stone-600 underline underline-offset-2 decoration-dotted cursor-default">Cleaning fee</span>
+                            <span className="text-stone-800">${Math.round(cleaningFee.amount)}</span>
+                          </div>
+                        )}
+
+                        {/* Other fees */}
+                        {otherFees.map((f, i) => (
+                          <div key={i} className="flex justify-between">
+                            <span className="text-stone-600">{f.name}</span>
+                            <span className="text-stone-800">${Math.round(f.amount)}</span>
+                          </div>
+                        ))}
+
+                        {/* Taxes */}
+                        {totalTax > 0 && (
+                          <div className="flex justify-between">
+                            <span className="text-stone-600 underline underline-offset-2 decoration-dotted cursor-default">Taxes</span>
+                            <span className="text-stone-800">${Math.round(totalTax)}</span>
+                          </div>
+                        )}
+
+                        {/* Total */}
+                        <div className="flex justify-between font-semibold text-base pt-2.5 border-t border-stone-200">
+                          <span className="text-stone-900">Total</span>
+                          <span className="text-stone-900">${Math.round(quote.total)}</span>
+                        </div>
+                        <p className="text-[10px] text-stone-400 text-center pt-0.5">No Airbnb or VRBO service fees</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
+              {/* Why book direct */}
               <div className="pt-4 border-t border-stone-100 space-y-2.5">
                 {[
                   'No Airbnb or VRBO service fees',
