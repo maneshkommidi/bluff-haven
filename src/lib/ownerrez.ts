@@ -143,6 +143,16 @@ export async function getAvailabilityWithPricing(
   const blockedDates = new Set<string>()
   for (const b of bookings) {
     if (!b.arrival || !b.departure) continue
+
+    // Skip cancelled / declined bookings so they stop blocking dates
+    const status = (b.status as string | undefined)?.toLowerCase()
+    const isCancelled =
+      !!b.canceled_utc ||
+      status === 'cancelled' ||
+      status === 'canceled' ||
+      status === 'declined'
+    if (isCancelled) continue
+
     const [ay, am, ad] = (b.arrival  as string).split('-').map(Number)
     const [dy, dm, dd] = (b.departure as string).split('-').map(Number)
     const cursor  = new Date(ay, am - 1, ad)
@@ -186,7 +196,7 @@ export async function getQuote(
   const { propertyId } = getConfig()
 
   const data = await orFetch<any>(`${BASE_V1}/quotes`, {
-    method: 'TEST',
+    method: 'POST',
     body: JSON.stringify({
       PropertyId: parseInt(propertyId),
       Arrival:    arrival,
